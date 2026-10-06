@@ -14,7 +14,7 @@ const VOICE = process.env.LIVE_VOICE || 'Puck';
 const API = process.env.LIVE_API || 'v1beta';
 const URL_BASE = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${API}.GenerativeService.BidiGenerateContent`;
 
-const VOICE_RULES = `You are now in a live spoken conversation, so everything you say is read aloud. Speak natural, correct Polish in one to three short sentences. No lists, no markdown, no symbols or emoji; say dates, times and amounts the way a person says them. If you need a tool that takes a moment, begin with a very short acknowledgement such as "Już sprawdzam." Do not read out long results: give the essential answer and offer more. If a tool needs approval, say briefly that it waits for his approval on the screen.`;
+const VOICE_RULES = `LANGUAGE LOCK: Jurek speaks Polish, always. Everything you hear is Polish, even very short, quiet or unclear utterances ('dobra', 'okej', 'idę spać', 'cześć'); transcribe and interpret it as Polish and never as Turkish, Russian, German, English or any other language. Reply only in Polish. Never switch languages on your own, even if a word sounds foreign. If you cannot make out what he said, say exactly 'Nie dosłyszałem, powtórz proszę.' in Polish instead of guessing a language.\n\nYou are now in a live spoken conversation, so everything you say is read aloud. Speak natural, correct Polish in one to three short sentences. No lists, no markdown, no symbols or emoji; say dates, times and amounts the way a person says them. If you need a tool that takes a moment, begin with a very short acknowledgement such as "Już sprawdzam." Do not read out long results: give the essential answer and offer more. If a tool needs approval, say briefly that it waits for his approval on the screen.`;
 
 
 export function liveSetup() {
@@ -23,7 +23,7 @@ export function liveSetup() {
     generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } }, languageCode: 'pl-PL' } },
     systemInstruction: { parts: [{ text: `${systemPrompt()}\n\n${VOICE_RULES}` }] },
     tools: declarations(),
-    inputAudioTranscription: {},
+    inputAudioTranscription: { languageCodes: ['pl-PL'] },
     outputAudioTranscription: {},
   };
 }

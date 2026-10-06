@@ -48,7 +48,7 @@ function fromB64(str) {
 }
 
 export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = () => {}, onTranscript = () => {}, direct = null } = {}) {
-  let ctx = null, ws = null, stream = null, node = null, source = null, gain = null, analyser = null, timer = null, session = null;
+  let ctx = null, micCtx = null, ws = null, stream = null, node = null, source = null, gain = null, analyser = null, timer = null, session = null;
   let hostState = 'idle', shown = 'idle', muted = false, playHead = 0, mic = 0, out = 0, stopping = false, ready = false;
   let turn = { user: '', assistant: '' }, chain = Promise.resolve();
   const sources = new Set();
@@ -192,13 +192,16 @@ export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = (
     if (ws || stopping) return;
     hostState = 'connecting'; shown = 'idle'; ws = {}; ready = false;
     turn = { user: '', assistant: '' }; chain = Promise.resolve();
-    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC({ latencyHint: 'interactive' });
     ctx.resume();
+    try { micCtx = new AC({ sampleRate: 16000, latencyHint: 'interactive' }); } catch { micCtx = ctx; }
+    micCtx.resume();
     publish();
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
       const blob = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
-      await ctx.audioWorklet.addModule(blob);
+      await micCtx.audioWorklet.addModule(blob);
       URL.revokeObjectURL(blob);
     } catch (e) {
       onEvent({ type: 'error', message: e && e.name === 'NotAllowedError' ? 'Brak zgody na mikrofon. Zezwól na dostęp w ustawieniach przeglądarki.' : 'Nie udało się uruchomić mikrofonu.' });
@@ -208,8 +211,8 @@ export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = (
     gain = ctx.createGain();
     analyser = ctx.createAnalyser(); analyser.fftSize = 512;
     gain.connect(analyser); analyser.connect(ctx.destination);
-    source = ctx.createMediaStreamSource(stream);
-    node = new AudioWorkletNode(ctx, 'mic-capture');
+    source = micCtx.createMediaStreamSource(stream);
+    node = new AudioWorkletNode(micCtx, 'mic-capture');
     source.connect(node);
     timer = setInterval(tick, 33);
     if (direct) await connectDirect(); else await connectHost();
@@ -226,8 +229,9 @@ export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = (
     flush();
     try { node && node.disconnect(); source && source.disconnect(); } catch {}
     try { stream && stream.getTracks().forEach(t => t.stop()); } catch {}
+    try { if (micCtx && micCtx !== ctx) micCtx.close(); } catch {}
     try { ctx && ctx.close(); } catch {}
-    ctx = stream = node = source = gain = analyser = null;
+    ctx = micCtx = stream = node = source = gain = analyser = null;
     hostState = 'idle'; mic = out = 0;
     onLevel({ mic: 0, out: 0 });
     shown = 'idle'; onState('idle');
