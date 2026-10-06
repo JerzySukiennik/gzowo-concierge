@@ -216,18 +216,20 @@ function showPair() {
 }
 
 async function setupLive(demo) {
-  if (transport.mode !== 'local') return;
+  const direct = transport.mode === 'relay' && !demo ? transport.liveBridge : null;
+  if (transport.mode !== 'local' && !direct) return;
   if (!demo && !(window.isSecureContext && navigator.mediaDevices?.getUserMedia && 'WebSocket' in window)) return;
   let factory = null;
   try { factory = (await import(demo ? './transport-demo.js' : './live-audio.js')).createLive; } catch { return; }
   if (typeof factory !== 'function') return;
+  const make = direct ? cbs => factory({ ...cbs, direct }) : factory;
   liveScreen = createLiveScreen({
-    root: $('live'), factory,
+    root: $('live'), factory: make,
     forward: e => onEvent({ ...e, live: true }),
     approve: answer,
     getPending: () => state.pending,
     setPending: map => mergeState({ pending: map }),
-    onFinal: (role, text) => { if (role === 'user') { lastUserText = text; thread.addUser(text, null, false); } else thread.addAssistant(text); },
+    onFinal: (role, text) => { if (direct) return; if (role === 'user') { lastUserText = text; thread.addUser(text, null, false); } else thread.addAssistant(text); },
     onClose: closedLive,
   });
   fit();

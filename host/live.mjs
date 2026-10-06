@@ -17,6 +17,34 @@ const URL_BASE = `wss://generativelanguage.googleapis.com/ws/google.ai.generativ
 const VOICE_RULES = `You are now in a live spoken conversation, so everything you say is read aloud. Speak natural, correct Polish in one to three short sentences. No lists, no markdown, no symbols or emoji; say dates, times and amounts the way a person says them. If you need a tool that takes a moment, begin with a very short acknowledgement such as "Już sprawdzam." Do not read out long results: give the essential answer and offer more. If a tool needs approval, say briefly that it waits for his approval on the screen.`;
 
 
+export function liveSetup() {
+  return {
+    model: MODEL,
+    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } }, languageCode: 'pl-PL' } },
+    systemInstruction: { parts: [{ text: `${systemPrompt()}\n\n${VOICE_RULES}` }] },
+    tools: declarations(),
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+  };
+}
+
+export async function mintLiveToken() {
+  const now = Date.now();
+  const res = await fetch('https://generativelanguage.googleapis.com/v1alpha/auth_tokens', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': config.apiKey },
+    body: JSON.stringify({
+      uses: 1,
+      expireTime: new Date(now + 30 * 60e3).toISOString(),
+      newSessionExpireTime: new Date(now + 2 * 60e3).toISOString(),
+      bidiGenerateContentSetup: liveSetup(),
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`token HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
+  return { token: (await res.json()).name, model: MODEL };
+}
+
 export function handleLiveUpgrade(req, socket) {
   const rid = () => crypto.randomUUID();
   let upstream = null, ready = false, closed = false;
@@ -56,18 +84,7 @@ export function handleLiveUpgrade(req, socket) {
 
   function connectUpstream() {
     upstream = new WebSocket(`${URL_BASE}?key=${encodeURIComponent(config.apiKey)}`);
-    upstream.addEventListener('open', () => {
-      upstream.send(JSON.stringify({
-        setup: {
-          model: MODEL,
-          generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } }, languageCode: 'pl-PL' } },
-          systemInstruction: { parts: [{ text: `${systemPrompt()}\n\n${VOICE_RULES}` }] },
-          tools: declarations(),
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-        },
-      }));
-    });
+    upstream.addEventListener('open', () => { upstream.send(JSON.stringify({ setup: liveSetup() })); });
     upstream.addEventListener('message', async ev => {
       let m; try { m = JSON.parse(ev.data instanceof Blob ? await ev.data.text() : String(ev.data)); } catch { return; }
       onUpstream(m);

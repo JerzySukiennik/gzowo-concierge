@@ -1,7 +1,11 @@
 // Gzowo Concierge - Firebase Realtime Database relay: the phone and the host both connect outbound.
 // Layout under /c/<sid>: inbox (phone -> host commands), feed (host -> phone events), state (snapshot + heartbeat).
 import { config } from './config.mjs';
-import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread } from './commands.mjs';
+import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread, THREAD } from './commands.mjs';
+import { callTool } from './agent.mjs';
+import { store } from './db.mjs';
+import { mintLiveToken } from './live.mjs';
+import { live } from './live-state.mjs';
 
 const SV = { '.sv': 'timestamp' };
 const TTL_MS = 10 * 60 * 1000;
@@ -53,6 +57,49 @@ export function startRelay() {
   bus.on('state', pushState);
   bus.on('cleared', () => { feedChain = feedChain.then(() => call('DELETE', 'feed')); });
 
+  const ID = /^[\w-]{8,64}$/;
+  const remote = new Map();
+
+  function endRemote(cid) {
+    const r = remote.get(cid);
+    if (!r) return;
+    clearTimeout(r.timer);
+    live.sessions.delete(r.session);
+    remote.delete(cid);
+    call('DELETE', `live/${cid}`);
+  }
+
+  async function liveToken(m) {
+    try {
+      const t = await mintLiveToken();
+      if (!remote.has(m.cid)) {
+        const session = { notify: note => call('POST', `live/${m.cid}/notify`, { text: note }) };
+        live.sessions.add(session);
+        remote.set(m.cid, { session, timer: setTimeout(() => endRemote(m.cid), 35 * 60e3) });
+      }
+      await call('PUT', `live/${m.cid}/token`, { ...t, ts: SV });
+    } catch (err) {
+      await call('PUT', `live/${m.cid}/token`, { error: String(err.message || err).slice(0, 160) });
+    }
+  }
+
+  async function liveTool(m) {
+    let args = {};
+    try { args = JSON.parse(m.argsJson || '{}'); } catch {}
+    const emit = e => { const ev = { ...e, rid: m.cid }; call('POST', `live/${m.cid}/ev`, ev); bus.emit('event', ev); };
+    const response = await callTool(THREAD, { name: String(m.name), args }, emit);
+    bus.emit('state');
+    await call('POST', `live/${m.cid}/ev`, { type: 'pending', pending: Object.fromEntries(snapshot().pending.map(p => [p.id, p.summary])), rid: m.cid });
+    await call('PUT', `live/${m.cid}/res/${m.callId}`, { json: JSON.stringify(response) });
+  }
+
+  function liveTurn(m) {
+    const u = String(m.user || '').trim().slice(0, 4000), a = String(m.assistant || '').trim().slice(0, 4000);
+    const rid = ID.test(m.rid || '') ? m.rid : m.cid;
+    if (u) { store.addContent(THREAD, { role: 'user', parts: [{ text: u }] }); bus.emit('event', { type: 'user', text: u, rid, cid: rid }); }
+    if (a) { store.addContent(THREAD, { role: 'model', parts: [{ text: a }] }); bus.emit('event', { type: 'text', text: a, rid }); }
+  }
+
   async function onInboxItem(id, m) {
     if (seen.has(id)) return;
     seen.add(id);
@@ -69,6 +116,10 @@ export function startRelay() {
       else if (m.type === 'policy') applyPolicy(String(m.action), String(m.policy));
       else if (m.type === 'forget') forgetFact(Number(m.id));
       else if (m.type === 'clear') clearThread();
+      else if (m.type === 'live-token' && ID.test(m.cid || '')) liveToken(m);
+      else if (m.type === 'live-tool' && ID.test(m.cid || '') && ID.test(m.callId || '')) liveTool(m);
+      else if (m.type === 'live-turn' && ID.test(m.cid || '')) liveTurn(m);
+      else if (m.type === 'live-end' && ID.test(m.cid || '')) endRemote(m.cid);
     } catch (err) {
       bus.emit('event', { type: 'error', message: String(err.message || err) });
     }
@@ -135,6 +186,7 @@ export function startRelay() {
   setInterval(() => call('PUT', 'state/online', SV), 20000).unref?.();
   setInterval(trimFeed, 30 * 60 * 1000).unref?.();
   trimFeed();
+  call('DELETE', 'live');
   listen();
   log('started, pair link:', pairingUrl().replace(config.relay.sid, '<sid>'));
 }
