@@ -24,6 +24,11 @@ if (!env.CONCIERGE_TOKEN) {
   fs.appendFileSync(envPath, `CONCIERGE_TOKEN=${env.CONCIERGE_TOKEN}\n`, { mode: 0o600 });
 }
 
+if (!env.RELAY_SID) {
+  env.RELAY_SID = crypto.randomBytes(32).toString('hex');
+  fs.appendFileSync(envPath, `RELAY_SID=${env.RELAY_SID}\n`, { mode: 0o600 });
+}
+
 export const config = {
   apiKey: env.GEMINI_API_KEY || '',
   token: env.CONCIERGE_TOKEN,
@@ -35,6 +40,12 @@ export const config = {
   dataDir: path.join(ROOT, 'data'),
   calApp: path.join(ROOT, 'bin', 'ConciergeCal.app'),
   webDir: path.join(ROOT, 'web'),
+  relay: {
+    dbUrl: (env.FIREBASE_DB_URL || 'https://gzowo-concierge-default-rtdb.europe-west1.firebasedatabase.app').replace(/\/$/, ''),
+    sid: env.RELAY_SID,
+    hostingUrl: (env.HOSTING_URL || 'https://gzowo-concierge.web.app').replace(/\/$/, ''),
+    enabled: env.RELAY !== 'off',
+  },
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });

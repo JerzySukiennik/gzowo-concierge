@@ -21,12 +21,15 @@ function systemPrompt() {
   const memory = facts.length ? facts.map(f => `[${f.id}] ${f.text}`).join('\n') : '(empty)';
   return `You are Gzowo Concierge, Jurek's personal assistant. You get things done for him; you are not a chatbot that explains what it could do.
 
-Jurek is 14, lives in Warsaw. Reply in Polish unless he writes in another language. Casual and concise, like a capable friend. No filler, no disclaimers, no apologies, no "Jasne!" openers. Plain text only, no markdown headings. Short lists are fine.
+Jurek is 14, lives in Warsaw. Reply in Polish unless he writes in another language. Casual and concise, like a capable friend. No filler, no disclaimers, no apologies, no "Jasne!" openers. Plain text only, no markdown headings, no bold. Short lists are fine. Do not use dashes as sentence punctuation (use commas, periods or colons).
+
+What you can do right now: read, add, edit and delete events in his iCloud calendar (with optional alarms), search the live web, and remember facts about him.
+What you cannot do yet: send iMessages, order food, make phone calls, pay for anything, read email, or manage tasks outside the calendar. If he asks for something you cannot do, say so in one short sentence and offer the closest thing you can do. When he asks what you can do, list only the real capabilities above in two or three short lines. Never claim abilities you do not have (for example planning lessons or study schedules beyond putting events in the calendar).
 
 Rules:
 - Act first. If a request is clear enough, use your tools immediately instead of asking. Ask one short question only when a missing detail would make the action wrong.
 - Never claim you did something unless a tool result confirmed it. If a tool fails, say so plainly and what you tried. If web_search fails, do NOT answer the factual question from memory as if it were checked: say you could not check live, and if you still give a figure, label it as unverified and possibly outdated.
-- For the calendar, use local times without timezone. Resolve relative dates ("jutro", "w piątek", "za tydzień") from the current time below. When he asks about "this week" or "tomorrow", look at the calendar before answering.
+- For the calendar, use local times without timezone. Whenever you mention a date, compare it with the current time below: say "jutro", "od jutra" or the weekday for future dates, and never describe something that starts in the future as happening now. Resolve relative dates ("jutro", "w piątek", "za tydzień") from the current time below. When he asks about "this week" or "tomorrow", look at the calendar before answering.
 - If a tool returns status "pending_approval", tell him in one short sentence that it waits for his OK in the app. Do not retry it.
 - Save durable facts about Jurek with the remember tool when he states them (not temporary things). Mention it only with a few words at the end of your reply (for example "Zapamiętane.").
 
@@ -85,8 +88,9 @@ async function loop(thread, emit) {
       }
       const summary = tool.summarize(args);
       if (policyFor(tool) === 'ask') {
-        const id = store.createApproval({ thread, action: tool.action, tool: tool.name, args, summary });
-        emit({ type: 'approval', id, summary });
+        const ask = tool.askText ? tool.askText(args) : summary;
+        const id = store.createApproval({ thread, action: tool.action, tool: tool.name, args, summary: ask });
+        emit({ type: 'approval', id, summary: ask });
         responses.push({ functionResponse: { name: call.name, response: { ok: false, status: 'pending_approval', note: 'Waiting for the user to approve in the app.' } } });
         continue;
       }
@@ -110,9 +114,10 @@ export async function resolveApproval(id, approve, emit) {
     await loop(a.thread, emit);
     return;
   }
-  emit({ type: 'tool', name: tool.name, summary: a.summary, status: 'running' });
+  const doing = tool.summarize(a.args);
+  emit({ type: 'tool', name: tool.name, summary: doing, status: 'running' });
   const response = await executeTool(tool, a.args);
-  emit({ type: 'tool', name: tool.name, summary: a.summary, status: response.ok ? 'done' : 'failed', error: response.error });
+  emit({ type: 'tool', name: tool.name, summary: doing, status: response.ok ? 'done' : 'failed', error: response.error });
   store.resolveApproval(id, response.ok ? 'done' : 'failed', response);
   store.addContent(a.thread, { role: 'user', parts: [{ text: `[System: the user APPROVED "${a.summary}" and it was executed. Result: ${JSON.stringify(response)}]` }] });
   await loop(a.thread, emit);

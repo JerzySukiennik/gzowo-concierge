@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from '../config.mjs';
+import { when, range } from '../human.mjs';
 
 async function cal(command, opts = {}) {
   const out = path.join(config.dataDir, `cal-${crypto.randomUUID()}.json`);
@@ -40,7 +41,7 @@ export const calendarTools = [
       },
       required: ['from', 'to'],
     },
-    summarize: a => `Check calendar ${a.from} to ${a.to}`,
+    summarize: a => `Sprawdzam kalendarz (${range(a.from, a.to)})`,
     run: a => cal('list', { from: a.from, to: a.to, query: a.query }),
   },
   {
@@ -61,7 +62,7 @@ export const calendarTools = [
       },
       required: ['title', 'start'],
     },
-    summarize: a => `Add to calendar: ${a.title} (${a.start})`,
+    summarize: a => `Dodaję do kalendarza: ${a.title} (${when(a.start)})`,
     run: a => cal('add', a),
   },
   {
@@ -82,7 +83,7 @@ export const calendarTools = [
       },
       required: ['id'],
     },
-    summarize: a => `Edit calendar event ${a.title || a.id}`,
+    summarize: a => `Zmieniam wydarzenie${a.title ? ': ' + a.title : ' w kalendarzu'}`,
     run: a => cal('update', a),
   },
   {
@@ -91,7 +92,8 @@ export const calendarTools = [
     policy: 'ask',
     description: 'Delete a calendar event. Get the id from calendar_list first.',
     parameters: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string', description: 'Event title, for the confirmation text' } }, required: ['id'] },
-    summarize: a => `Delete calendar event ${a.title || a.id}`,
+    summarize: a => `Usuwam z kalendarza${a.title ? ': ' + a.title : ''}`,
+    askText: a => `Usunąć z kalendarza${a.title ? ': ' + a.title : ' to wydarzenie'}?`,
     run: a => cal('delete', { id: a.id }),
   },
 ];

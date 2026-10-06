@@ -11,14 +11,14 @@ export const webTools = [
     policy: 'auto',
     description: 'Search the live web and get a researched answer with sources. Use for current facts, prices, opening hours, news, how-to questions.',
     parameters: { type: 'object', properties: { query: { type: 'string', description: 'What to find out, as a full question' } }, required: ['query'] },
-    summarize: a => `Search the web: ${a.query}`,
+    summarize: a => `Szukam w sieci: ${a.query}`,
     async run({ query }) {
       let res, lastErr;
       for (const model of SEARCH_MODELS) {
         try {
           res = await generate({
             model,
-            system: 'You are a research tool. Answer precisely and briefly with concrete facts (numbers, names, dates, addresses). No filler.',
+            system: `You are a research tool. Answer precisely and briefly with concrete facts (numbers, names, dates, addresses). No filler. Today is ${new Date().toLocaleDateString('sv-SE', { timeZone: config.timezone })} (${config.timezone}). Always give absolute dates and say clearly whether an event is in the past, today or still upcoming relative to today.`,
             contents: [{ role: 'user', parts: [{ text: query }] }],
             tools: [{ google_search: {} }],
             thinking: model.includes('2.5') ? null : 'minimal',

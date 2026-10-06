@@ -1,0 +1,17 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "c": {
+      "$sid": {
+        ".read": "$sid.length >= 40",
+        ".write": "$sid.length >= 40",
+        "inbox": {
+          "$m": {
+            ".validate": "newData.hasChildren(['type', 'ts']) && (!newData.hasChild('text') || (newData.child('text').isString() && newData.child('text').val().length < 4000))"
+          }
+        }
+      }
+    }
+  }
+}

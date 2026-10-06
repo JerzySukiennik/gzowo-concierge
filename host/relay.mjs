@@ -1,0 +1,140 @@
+// Gzowo Concierge - Firebase Realtime Database relay: the phone and the host both connect outbound.
+// Layout under /c/<sid>: inbox (phone -> host commands), feed (host -> phone events), state (snapshot + heartbeat).
+import { config } from './config.mjs';
+import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread } from './commands.mjs';
+
+const SV = { '.sv': 'timestamp' };
+const TTL_MS = 10 * 60 * 1000;
+const FEED_KEEP = 300;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+export function pairingUrl() {
+  return `${config.relay.hostingUrl}/#s=${config.relay.sid}`;
+}
+
+export function startRelay() {
+  if (!config.relay.enabled || !config.relay.dbUrl || !config.relay.sid) return;
+  const base = `${config.relay.dbUrl}/c/${config.relay.sid}`;
+  const url = (p, q = '') => `${base}/${p}.json${q}`;
+  const seen = new Set();
+  const log = (...a) => console.log('[relay]', ...a);
+
+  async function call(method, p, body, q) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const res = await fetch(url(p, q), { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+        if (res.ok) return res.json();
+        if (res.status < 500 && res.status !== 429) { log(method, p, 'HTTP', res.status, (await res.text()).slice(0, 120)); return null; }
+      } catch (err) { if (attempt === 3) log(method, p, 'failed:', String(err.message || err).slice(0, 100)); }
+      await sleep(1000 * 2 ** attempt);
+    }
+    return null;
+  }
+
+  let feedChain = Promise.resolve();
+  const pushFeed = e => { feedChain = feedChain.then(() => call('POST', 'feed', { ...e, ts: SV })); };
+
+  const stateBody = () => {
+    const s = snapshot();
+    const policies = {};
+    for (const [k, v] of Object.entries(s.policies)) policies[k.replace(/\./g, '_')] = v;
+    const facts = {}; for (const f of s.facts) facts[f.id] = f.text;
+    const pending = {}; for (const p of s.pending) pending[p.id] = p.summary;
+    return { busy: s.busy, policies, facts, pending };
+  };
+  let statePending = false;
+  const pushState = () => {
+    if (statePending) return;
+    statePending = true;
+    setTimeout(() => { statePending = false; call('PATCH', 'state', { ...stateBody(), online: SV }); }, 150);
+  };
+
+  bus.on('event', e => pushFeed(e));
+  bus.on('state', pushState);
+  bus.on('cleared', () => { feedChain = feedChain.then(() => call('DELETE', 'feed')); });
+
+  async function onInboxItem(id, m) {
+    if (seen.has(id)) return;
+    seen.add(id);
+    if (seen.size > 2000) seen.clear();
+    await call('DELETE', `inbox/${id}`);
+    if (!m || typeof m !== 'object' || !m.type) return;
+    if (Date.now() - (m.ts || 0) > TTL_MS) {
+      bus.emit('event', { type: 'error', message: `Byłem offline i pominąłem starą wiadomość: "${String(m.text || m.type).slice(0, 80)}"` });
+      return;
+    }
+    try {
+      if (m.type === 'chat' && typeof m.text === 'string' && m.text.trim()) chat(m.text.trim(), undefined, { cid: typeof m.cid === 'string' ? m.cid.slice(0, 64) : undefined });
+      else if (m.type === 'approval' && typeof m.id === 'string') approve(m.id, !!m.approve);
+      else if (m.type === 'policy') applyPolicy(String(m.action), String(m.policy));
+      else if (m.type === 'forget') forgetFact(Number(m.id));
+      else if (m.type === 'clear') clearThread();
+    } catch (err) {
+      bus.emit('event', { type: 'error', message: String(err.message || err) });
+    }
+  }
+
+  function onSse(ev, data) {
+    if (ev === 'cancel' || ev === 'auth_revoked') throw new Error(`stream ${ev}`);
+    if (ev !== 'put' && ev !== 'patch') return;
+    const { path, data: d } = JSON.parse(data);
+    if (!d || typeof d !== 'object') return;
+    if (path === '/') {
+      Object.entries(d).sort((a, b) => (a[1]?.ts || 0) - (b[1]?.ts || 0)).forEach(([id, m]) => onInboxItem(id, m));
+    } else {
+      const parts = path.split('/').filter(Boolean);
+      if (parts.length === 1) onInboxItem(parts[0], d);
+    }
+  }
+
+  async function listen() {
+    let backoff = 1000;
+    for (;;) {
+      const ctrl = new AbortController();
+      let last = Date.now();
+      const dog = setInterval(() => { if (Date.now() - last > 90000) ctrl.abort(); }, 15000);
+      try {
+        const res = await fetch(url('inbox'), { headers: { accept: 'text/event-stream' }, signal: ctrl.signal });
+        if (!res.ok) throw new Error(`stream HTTP ${res.status}`);
+        log('connected');
+        backoff = 1000;
+        pushState();
+        const dec = new TextDecoder();
+        let buf = '', ev = '';
+        for await (const chunk of res.body) {
+          last = Date.now();
+          buf += dec.decode(chunk, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, i).replace(/\r$/, '');
+            buf = buf.slice(i + 1);
+            if (line.startsWith('event:')) ev = line.slice(6).trim();
+            else if (line.startsWith('data:')) onSse(ev, line.slice(5).trim());
+          }
+        }
+      } catch (err) {
+        if (!ctrl.signal.aborted) log('stream error:', String(err.message || err).slice(0, 120));
+      } finally {
+        clearInterval(dog);
+      }
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, 30000);
+    }
+  }
+
+  async function trimFeed() {
+    const keys = await call('GET', 'feed', undefined, '?shallow=true');
+    if (!keys) return;
+    const all = Object.keys(keys).sort();
+    if (all.length <= FEED_KEEP) return;
+    const drop = {};
+    all.slice(0, all.length - FEED_KEEP).forEach(k => { drop[k] = null; });
+    await call('PATCH', 'feed', drop);
+  }
+
+  setInterval(() => call('PUT', 'state/online', SV), 20000).unref?.();
+  setInterval(trimFeed, 30 * 60 * 1000).unref?.();
+  trimFeed();
+  listen();
+  log('started, pair link:', pairingUrl().replace(config.relay.sid, '<sid>'));
+}
