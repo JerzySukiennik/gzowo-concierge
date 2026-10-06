@@ -32,6 +32,15 @@ cat > "$PL" <<PLIST
 PLIST
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PL"
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break
+  sleep 0.5
+done
+ok=0
+for i in 1 2 3 4 5; do
+  if launchctl bootstrap "gui/$(id -u)" "$PL" 2>/dev/null; then ok=1; break; fi
+  sleep 1
+done
+[ "$ok" = 1 ] || { echo "bootstrap failed after retries"; exit 1; }
 launchctl kickstart -k "gui/$(id -u)/$LABEL"
 echo "installed to $RT, agent $LABEL loaded"
