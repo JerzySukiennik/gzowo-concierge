@@ -1,0 +1,13 @@
+{
+  "name": "gzowo-concierge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal AI concierge that runs on a Mac host and acts on your behalf.",
+  "scripts": {
+    "start": "node host/server.mjs",
+    "ask": "node scripts/ask.mjs",
+    "build:mac": "host/mac/build.sh"
+  },
+  "engines": { "node": ">=24" }
+}

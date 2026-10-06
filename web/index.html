@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gzowo Concierge</title>
+<style>
+:root { --bg:#0b0b0c; --panel:#161618; --line:#26262a; --text:#f2f2f3; --dim:#8a8a90; --me:#2a2a2e; --err:#ff453a; }
+@media (prefers-color-scheme: light) { :root { --bg:#fafafa; --panel:#fff; --line:#e4e4e7; --text:#111; --dim:#76767c; --me:#ececef; } }
+* { box-sizing:border-box; }
+html,body { height:100%; margin:0; background:var(--bg); color:var(--text); font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif; }
+#app { display:flex; flex-direction:column; height:100%; max-width:720px; margin:0 auto; }
+header { display:flex; align-items:center; justify-content:space-between; padding:max(12px,env(safe-area-inset-top)) 16px 12px; border-bottom:1px solid var(--line); }
+header b { font-weight:600; letter-spacing:-.01em; }
+header button { background:none; border:0; color:var(--dim); font:inherit; padding:6px; }
+#log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+.msg { max-width:86%; padding:9px 13px; border-radius:18px; white-space:pre-wrap; word-wrap:break-word; }
+.msg.user { align-self:flex-end; background:var(--me); }
+.msg.assistant { align-self:flex-start; }
+.tool { align-self:flex-start; font-size:13px; color:var(--dim); }
+.tool.failed { color:var(--err); }
+.card { align-self:flex-start; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px; max-width:86%; }
+.card .row { display:flex; gap:8px; }
+.card button { flex:1; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:10px; padding:9px; font:inherit; }
+.card button.go { background:var(--text); color:var(--bg); border-color:var(--text); }
+form { display:flex; gap:8px; padding:12px 16px max(12px,env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+textarea { flex:1; resize:none; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:20px; padding:10px 14px; font:inherit; max-height:140px; }
+textarea:focus { outline:none; border-color:var(--dim); }
+#send { width:42px; height:42px; border-radius:50%; border:0; background:var(--text); color:var(--bg); font-size:18px; }
+#send:disabled { opacity:.35; }
+#panel { display:none; padding:16px; border-bottom:1px solid var(--line); background:var(--panel); font-size:14px; }
+#panel.open { display:block; }
+#panel h4 { margin:12px 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); }
+#panel .line { display:flex; justify-content:space-between; align-items:center; padding:5px 0; gap:10px; }
+#panel select { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:4px 6px; font:inherit; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><b>Concierge</b><button id="gear" aria-label="Ustawienia">Ustawienia</button></header>
+  <div id="panel"></div>
+  <div id="log"></div>
+  <form id="form"><textarea id="input" rows="1" placeholder="Napisz do Concierge" autocomplete="off"></textarea><button id="send" type="submit" aria-label="Wyślij">↑</button></form>
+</div>
+<script>
+const qs = new URLSearchParams(location.search);
+if (qs.get('t')) { try { localStorage.setItem('ct', qs.get('t')); } catch {} history.replaceState(null, '', location.pathname); }
+const token = (() => { try { return localStorage.getItem('ct') || ''; } catch { return ''; } })();
+const H = { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) };
+const $ = id => document.getElementById(id);
+const log = $('log'), input = $('input'), send = $('send');
+let busy = false;
+
+function add(cls, text) { const d = document.createElement('div'); d.className = cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+function approvalCard(id, summary) {
+  const c = document.createElement('div'); c.className = 'card'; c.dataset.id = id;
+  c.innerHTML = '<div></div><div class="row"><button data-a="0">Nie</button><button data-a="1" class="go">Zatwierdź</button></div>';
+  c.firstChild.textContent = summary;
+  c.querySelectorAll('button').forEach(b => b.onclick = () => { c.remove(); stream('/api/approvals/' + id, { approve: b.dataset.a === '1' }); });
+  log.appendChild(c); log.scrollTop = log.scrollHeight;
+}
+async function stream(url, body) {
+  if (busy) return; busy = true; send.disabled = true;
+  const tools = {};
+  try {
+    const res = await fetch(url, { method: 'POST', headers: H, body: JSON.stringify(body) });
+    if (!res.ok) { add('tool failed', res.status === 401 ? 'Brak autoryzacji (otwórz link z tokenem).' : 'Błąd ' + res.status); return; }
+    const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { done, value } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line) continue;
+        const e = JSON.parse(line);
+        if (e.type === 'text') add('msg assistant', e.text);
+        else if (e.type === 'tool') { const k = e.name + e.summary; const el = tools[k] || (tools[k] = add('tool', '')); el.textContent = (e.status === 'running' ? '… ' : e.status === 'done' ? '✓ ' : '✕ ') + e.summary + (e.error ? ' (' + e.error.slice(0, 80) + ')' : ''); el.className = 'tool ' + (e.status === 'failed' ? 'failed' : ''); }
+        else if (e.type === 'approval') approvalCard(e.id, e.summary);
+        else if (e.type === 'error') add('tool failed', e.message);
+      }
+    }
+  } catch (err) { add('tool failed', 'Brak połączenia z hostem.'); }
+  finally { busy = false; send.disabled = false; input.focus(); }
+}
+$('form').onsubmit = e => { e.preventDefault(); const t = input.value.trim(); if (!t || busy) return; add('msg user', t); input.value = ''; input.style.height = 'auto'; stream('/api/chat', { text: t }); };
+input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('form').requestSubmit(); } };
+input.oninput = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; };
+
+async function loadHistory() {
+  const r = await fetch('/api/history', { headers: H }); if (!r.ok) return;
+  const j = await r.json();
+  j.messages.forEach(m => add('msg ' + m.role, m.text));
+  j.pending.forEach(p => approvalCard(p.id, p.summary));
+}
+const LABELS = { 'calendar.read': 'Kalendarz: odczyt', 'calendar.write': 'Kalendarz: dodawanie i edycja', 'calendar.delete': 'Kalendarz: usuwanie', 'web.search': 'Szukanie w sieci', 'memory.write': 'Pamięć' };
+$('gear').onclick = async () => {
+  const p = $('panel'); if (p.classList.toggle('open') === false) return;
+  const [pol, facts] = await Promise.all([fetch('/api/policies', { headers: H }).then(r => r.json()), fetch('/api/facts', { headers: H }).then(r => r.json())]);
+  p.innerHTML = '<h4>Kiedy pytać o zgodę</h4>';
+  for (const [a, v] of Object.entries(pol)) {
+    const l = document.createElement('div'); l.className = 'line'; l.innerHTML = '<span></span><select><option value="auto">Rób sam</option><option value="ask">Pytaj</option></select>';
+    l.firstChild.textContent = LABELS[a] || a; const s = l.querySelector('select'); s.value = v;
+    s.onchange = () => fetch('/api/policies', { method: 'POST', headers: H, body: JSON.stringify({ action: a, policy: s.value }) });
+    p.appendChild(l);
+  }
+  const h = document.createElement('h4'); h.textContent = 'Pamięć'; p.appendChild(h);
+  if (!facts.length) { const e = document.createElement('div'); e.style.color = 'var(--dim)'; e.textContent = 'Jeszcze nic.'; p.appendChild(e); }
+  facts.forEach(f => { const l = document.createElement('div'); l.className = 'line'; l.innerHTML = '<span></span><button style="background:none;border:0;color:var(--dim)">usuń</button>'; l.firstChild.textContent = f.text; l.lastChild.onclick = async () => { await fetch('/api/facts/' + f.id, { method: 'DELETE', headers: H }); l.remove(); }; p.appendChild(l); });
+};
+loadHistory();
+</script>
+</body>
+</html>
