@@ -37,7 +37,7 @@ export const config = {
   chatModel: env.CHAT_MODEL || 'gemini-3.5-flash-lite',
   smartModel: env.SMART_MODEL || 'gemini-3.5-flash',
   timezone: env.TZ_NAME || 'Europe/Warsaw',
-  dataDir: path.join(ROOT, 'data'),
+  dataDir: env.DATA_DIR || path.join(ROOT, 'data'),
   calApp: path.join(ROOT, 'bin', 'ConciergeCal.app'),
   webDir: path.join(ROOT, 'web'),
   relay: {

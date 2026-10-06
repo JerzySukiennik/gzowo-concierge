@@ -9,7 +9,7 @@ PL="$HOME/Library/LaunchAgents/$LABEL.plist"
 NODE="$(command -v node)"
 
 mkdir -p "$RT/data" "$HOME/Library/LaunchAgents"
-rsync -a --delete --exclude data --exclude .env --exclude node_modules --exclude .git "$SRC/host" "$SRC/web" "$SRC/bin" "$SRC/package.json" "$RT/"
+rsync -a --delete --exclude data --exclude .env --exclude node_modules --exclude .git "$SRC/host" "$SRC/web" "$SRC/bin" "$SRC/skills" "$SRC/package.json" "$RT/"
 [ -f "$RT/.env" ] || cp "$SRC/.env" "$RT/.env"
 chmod 600 "$RT/.env"
 [ -f "$SRC/data/concierge.db" ] && [ ! -f "$RT/data/concierge.db" ] && [ "${COPY_DB:-0}" = "1" ] && cp "$SRC/data/concierge.db" "$RT/data/" || true

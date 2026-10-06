@@ -7,6 +7,9 @@ import { config } from './config.mjs';
 import { store } from './db.mjs';
 import { chat, approve, snapshot, applyPolicy, forgetFact, clearThread, history } from './commands.mjs';
 import { startRelay, pairingUrl } from './relay.mjs';
+import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
+import { listSkills, deleteSkill } from './skills.mjs';
+import { listCards, addCard, removeCard } from './vault.mjs';
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const isLoopback = req => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
@@ -51,6 +54,20 @@ async function api(req, res, url) {
   if (p === '/api/policies' && req.method === 'POST') { const { action, policy } = await readBody(req); return json(res, 200, applyPolicy(action, policy)); }
   const f = p.match(/^\/api\/facts\/(\d+)$/);
   if (f && req.method === 'DELETE') return json(res, 200, { ok: forgetFact(Number(f[1])) });
+  if (p === '/api/persona') {
+    if (req.method === 'POST') { const { persona } = await readBody(req); setPersona(persona); }
+    return json(res, 200, { persona: getPersona(), isDefault: isDefaultPersona() });
+  }
+  if (p === '/api/skills') return json(res, 200, listSkills().map(({ name, description, source }) => ({ name, description, source })));
+  const sk = p.match(/^\/api\/skills\/([a-z0-9-]+)$/);
+  if (sk && req.method === 'DELETE') return json(res, 200, { ok: deleteSkill(sk[1]) });
+  if (p === '/api/cards' || p.startsWith('/api/cards/')) {
+    if (!isLoopback(req)) return json(res, 403, { error: 'Cards can only be managed from the Mac itself.' });
+    if (p === '/api/cards' && req.method === 'GET') return json(res, 200, listCards());
+    if (p === '/api/cards' && req.method === 'POST') return json(res, 200, addCard(await readBody(req)));
+    const cd = p.match(/^\/api\/cards\/([\w-]+)$/);
+    if (cd && req.method === 'DELETE') return json(res, 200, { ok: removeCard(cd[1]) });
+  }
   if (p === '/api/clear' && req.method === 'POST') { clearThread(); return json(res, 200, { ok: true }); }
   return json(res, 404, { error: 'not found' });
 }

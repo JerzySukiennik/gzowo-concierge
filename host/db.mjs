@@ -21,6 +21,15 @@ db.exec(`
     ts INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS cards (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    brand TEXT NOT NULL,
+    last4 TEXT NOT NULL,
+    limit_pln INTEGER NOT NULL DEFAULT 0,
+    enc TEXT NOT NULL,
+    ts INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
     thread TEXT NOT NULL,
@@ -70,6 +79,19 @@ export const store = {
   setSetting(key, value) {
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(key, JSON.stringify(value));
+  },
+  addCard({ id, label, brand, last4, limitPln, enc }) {
+    db.prepare('INSERT INTO cards (id, label, brand, last4, limit_pln, enc, ts) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, label, brand, last4, limitPln, enc, now());
+  },
+  cards() {
+    return db.prepare('SELECT id, label, brand, last4, limit_pln AS limitPln FROM cards ORDER BY ts').all();
+  },
+  cardSecret(id) {
+    return db.prepare('SELECT enc FROM cards WHERE id = ?').get(id)?.enc || null;
+  },
+  removeCard(id) {
+    return db.prepare('DELETE FROM cards WHERE id = ?').run(id).changes > 0;
   },
   createApproval({ thread, action, tool, args, summary }) {
     const id = crypto.randomUUID();
