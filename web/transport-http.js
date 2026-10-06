@@ -31,6 +31,7 @@ export function createHttp(on) {
 
   async function get(path) { const r = await fetch(path, { headers: H }); if (!r.ok) throw new Error(r.status); return r.json(); }
   const post = (path, body) => fetch(path, { method: 'POST', headers: H, body: JSON.stringify(body || {}) });
+  const del = path => fetch(path, { method: 'DELETE', headers: H });
 
   async function refresh() {
     try {
@@ -52,8 +53,16 @@ export function createHttp(on) {
     send(text) { stream('/api/chat', { text }); },
     approve(id, yes) { stream('/api/approvals/' + id, { approve: yes }); },
     async setPolicy(action, policy) { await post('/api/policies', { action, policy }); refresh(); },
-    async forget(id) { await fetch('/api/facts/' + id, { method: 'DELETE', headers: H }); refresh(); },
+    async forget(id) { await del('/api/facts/' + id); refresh(); },
     async clear() { await post('/api/clear'); },
     async pairingUrl() { const r = await get('/api/pair'); return r.url; },
+    refresh,
+    async getPersona() { return get('/api/persona'); },
+    async setPersona(persona) { const r = await post('/api/persona', { persona }); if (!r.ok) throw new Error(r.status); return r.json(); },
+    async listSkills() { return get('/api/skills'); },
+    async deleteSkill(name) { await del('/api/skills/' + encodeURIComponent(name)); },
+    async listCards() { return get('/api/cards'); },
+    async addCard(card) { const r = await post('/api/cards', card); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; },
+    async deleteCard(id) { await del('/api/cards/' + encodeURIComponent(id)); },
   };
 }

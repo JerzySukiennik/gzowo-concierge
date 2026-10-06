@@ -3,138 +3,90 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0b0c">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fafafb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0f" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Concierge">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest" id="manifest">
+<link rel="stylesheet" href="style.css">
 <title>Gzowo Concierge</title>
-<style>
-:root {
-  --bg: #0b0b0c; --panel: #151517; --raised: #1d1d20; --line: #26262a;
-  --text: #f2f2f3; --dim: #8e8e95; --faint: #5c5c63; --me: #26262a; --err: #ff453a; --ok: #f2f2f3;
-  --pad: 18px;
-}
-@media (prefers-color-scheme: light) {
-  :root { --bg: #fafafa; --panel: #fff; --raised: #f1f1f3; --line: #e4e4e7; --text: #111113; --dim: #76767d; --faint: #a4a4ab; --me: #ececef; --ok: #111113; }
-}
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
-body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
-button { font: inherit; color: inherit; cursor: pointer; }
-
-#app { position: fixed; inset: 0; display: flex; flex-direction: column; max-width: 760px; margin: 0 auto; }
-
-header { display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 12px) var(--pad) 12px; flex: none; }
-header .mark { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--text); position: relative; flex: none; }
-header .mark::after { content: ""; position: absolute; inset: 0; margin: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--text); }
-header .name { font-weight: 600; letter-spacing: -.01em; font-size: 17px; }
-header .sp { flex: 1; }
-.icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: none; display: grid; place-items: center; color: var(--dim); transition: background .15s, color .15s; }
-.icon-btn:hover, .icon-btn:active { background: var(--raised); color: var(--text); }
-.icon-btn svg { width: 20px; height: 20px; }
-
-#banner { flex: none; margin: 0 var(--pad) 6px; padding: 8px 12px; border-radius: 12px; background: var(--raised); color: var(--dim); font-size: 13px; display: none; }
-#banner.on { display: block; }
-
-#log { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px var(--pad) 16px; display: flex; flex-direction: column; gap: 12px; scroll-behavior: auto; }
-.row { display: flex; flex-direction: column; animation: in .22s ease-out both; }
-.row.user { align-items: flex-end; }
-@keyframes in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.bubble { max-width: min(86%, 560px); padding: 9px 14px; border-radius: 20px; background: var(--me); white-space: pre-wrap; overflow-wrap: anywhere; }
-.bubble.queued { opacity: .5; }
-.assistant { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
-.chip { display: inline-flex; align-items: center; gap: 7px; align-self: flex-start; font-size: 13px; color: var(--dim); padding: 4px 10px 4px 8px; border-radius: 999px; background: var(--raised); max-width: 100%; }
-.chip span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip i { width: 12px; height: 12px; flex: none; display: block; border-radius: 50%; }
-.chip.running i { border: 2px solid var(--faint); border-top-color: var(--text); animation: spin .7s linear infinite; }
-.chip.done i { background: var(--ok); mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.4l2.2 2.2 4.8-5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.4l2.2 2.2 4.8-5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; border-radius: 0; }
-.chip.failed { color: var(--err); }
-.chip.failed i { background: var(--err); }
-@keyframes spin { to { transform: rotate(360deg); } }
-.error { color: var(--err); font-size: 14px; }
-.dots { display: flex; gap: 5px; padding: 6px 0; }
-.dots b { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); animation: bob 1.1s ease-in-out infinite; }
-.dots b:nth-child(2) { animation-delay: .15s; } .dots b:nth-child(3) { animation-delay: .3s; }
-@keyframes bob { 0%, 70%, 100% { opacity: .3; transform: none; } 35% { opacity: 1; transform: translateY(-3px); } }
-
-#empty { margin: auto; text-align: center; color: var(--dim); display: flex; flex-direction: column; align-items: center; gap: 18px; padding-bottom: 8vh; }
-#empty h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; color: var(--text); }
-#suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 420px; }
-#suggest button { border: 1px solid var(--line); background: none; color: var(--dim); border-radius: 999px; padding: 8px 14px; font-size: 14px; transition: color .15s, border-color .15s; }
-#suggest button:hover, #suggest button:active { color: var(--text); border-color: var(--dim); }
-
-#pending { flex: none; padding: 0 var(--pad); display: flex; flex-direction: column; gap: 8px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px; animation: in .2s ease-out both; }
-.card .q { font-size: 15px; }
-.card .btns { display: flex; gap: 8px; }
-.card button { flex: 1; border: 1px solid var(--line); background: var(--raised); border-radius: 12px; padding: 11px; font-weight: 500; }
-.card button.go { background: var(--text); color: var(--bg); border-color: var(--text); }
-
-form { flex: none; display: flex; align-items: flex-end; gap: 8px; padding: 10px var(--pad) calc(env(safe-area-inset-bottom) + 10px); }
-textarea { flex: 1; resize: none; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 22px; padding: 11px 16px; font: inherit; line-height: 1.35; max-height: 140px; min-height: 44px; overflow-y: hidden; scrollbar-width: none; transition: border-color .15s; }
-textarea::-webkit-scrollbar { display: none; }
-textarea::placeholder { color: var(--faint); }
-textarea:focus { outline: none; border-color: var(--faint); }
-#send { width: 44px; height: 44px; flex: none; border-radius: 50%; border: 0; background: var(--text); color: var(--bg); display: grid; place-items: center; transition: opacity .15s, transform .1s; }
-#send:active { transform: scale(.94); }
-#send:disabled { opacity: .3; }
-#send svg { width: 20px; height: 20px; }
-
-#scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 5; }
-#scrim.on { opacity: 1; pointer-events: auto; }
-#sheet { position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; max-width: 760px; max-height: 86dvh; overflow-y: auto; background: var(--panel); border-radius: 24px 24px 0 0; border: 1px solid var(--line); border-bottom: 0; padding: 8px var(--pad) calc(env(safe-area-inset-bottom) + 24px); transform: translateY(105%); transition: transform .28s cubic-bezier(.2, .9, .3, 1); z-index: 6; }
-#sheet.on { transform: none; }
-#sheet .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 4px auto 14px; }
-#sheet h3 { margin: 22px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
-#sheet h3:first-of-type { margin-top: 4px; }
-.line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 15px; border-bottom: 1px solid var(--line); }
-.line:last-child { border-bottom: 0; }
-.seg { display: inline-flex; background: var(--raised); border-radius: 10px; padding: 2px; flex: none; }
-.seg button { border: 0; background: none; padding: 6px 12px; border-radius: 8px; font-size: 13px; color: var(--dim); }
-.seg button.on { background: var(--text); color: var(--bg); font-weight: 600; }
-.mini { border: 0; background: none; color: var(--dim); font-size: 14px; padding: 4px 0; }
-.mini:hover { color: var(--text); }
-.mini.danger:hover { color: var(--err); }
-.muted { color: var(--dim); font-size: 14px; }
-#qr { background: #fff; border-radius: 16px; padding: 14px; width: 190px; height: 190px; display: grid; place-items: center; margin: 10px 0; }
-#qr svg { width: 100%; height: 100%; }
-
-#pair { position: fixed; inset: 0; background: var(--bg); z-index: 9; display: none; align-items: center; justify-content: center; padding: 32px; text-align: center; }
-#pair.on { display: flex; }
-#pair .box { max-width: 380px; width: 100%; display: flex; flex-direction: column; gap: 14px; align-items: center; }
-#pair h2 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
-#pair input { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; font: inherit; }
-#pair input:focus { outline: none; border-color: var(--faint); }
-#pair .go { width: 100%; border: 0; border-radius: 14px; padding: 13px; background: var(--text); color: var(--bg); font-weight: 600; }
-</style>
 </head>
 <body>
-<div id="app">
-  <header>
-    <div class="mark"></div><div class="name">Concierge</div><div class="sp"></div>
-    <button class="icon-btn" id="gear" aria-label="Ustawienia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/></svg></button>
+<div id="app" data-state="idle" data-busy="0">
+  <header class="bar">
+    <div class="brand">
+      <svg class="orb" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle class="o-ring" cx="16" cy="16" r="13"/><circle class="o-arc" cx="16" cy="16" r="13" pathLength="100"/><circle class="o-core" cx="16" cy="16" r="7"/></svg>
+      <h1>Concierge</h1>
+    </div>
+    <button class="icon-btn" id="gear" type="button" aria-label="Ustawienia" aria-haspopup="dialog" aria-expanded="false"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h8.5M17.5 7H20M4 17h2.5M11.5 17H20"/><circle cx="15" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/></svg></button>
   </header>
-  <div id="banner"></div>
-  <div id="log"></div>
-  <div id="pending"></div>
-  <form id="form">
-    <textarea id="input" rows="1" placeholder="Napisz do Concierge" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
-    <button id="send" type="submit" aria-label="Wyślij"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button>
-  </form>
+
+  <div id="banner" role="status"><svg class="orb mini" viewBox="0 0 32 32" aria-hidden="true"><circle class="o-ring" cx="16" cy="16" r="13"/></svg><span></span></div>
+
+  <main id="log" role="log" aria-label="Rozmowa" tabindex="-1"><div id="thread"></div></main>
+  <div class="fade-top" aria-hidden="true"></div>
+
+  <div id="dock">
+    <div id="dockInner">
+      <button id="jump" type="button" aria-label="Przewiń na dół"></button>
+      <div id="pending" aria-live="assertive"></div>
+      <form id="form" class="composer">
+        <textarea id="input" rows="1" placeholder="Napisz do Concierge" aria-label="Wiadomość" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
+        <button id="send" type="submit" aria-label="Wyślij" data-mode="send" disabled><svg class="ic ic-send" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5.5M6 11.5l6-6 6 6"/></svg><svg class="ic ic-face" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.8" y="6.6" width="2.6" height="6" rx="1.3"/><rect x="14.6" y="6.6" width="2.6" height="6" rx="1.3"/><path d="M9.6 17h4.8"/></svg></button>
+      </form>
+    </div>
+  </div>
 </div>
+
 <div id="scrim"></div>
-<div id="sheet" role="dialog" aria-label="Ustawienia"></div>
-<div id="pair"><div class="box">
-  <h2>Połącz z Concierge</h2>
-  <div class="muted">Na Macu otwórz Concierge, wejdź w ustawienia i zeskanuj kod aparatem iPhone'a. Albo wklej tu link do połączenia.</div>
-  <input id="pairInput" placeholder="Wklej link do połączenia" autocomplete="off" autocapitalize="off" spellcheck="false">
-  <button class="go" id="pairGo">Połącz</button>
-  <div class="error" id="pairErr"></div>
-</div></div>
+<aside id="sheet" role="dialog" aria-labelledby="sheetTitle" tabindex="-1">
+  <div class="grab" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <h2 id="sheetTitle">Ustawienia</h2>
+    <button class="icon-btn" id="sheetClose" type="button" aria-label="Zamknij"></button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+  <div id="toast" role="status"></div>
+</aside>
+
+<section id="live" role="dialog" aria-modal="true" aria-labelledby="liveTitle" tabindex="-1" inert>
+  <div class="live-scrim"></div>
+  <div class="live-panel">
+    <div class="live-bar">
+      <h2 id="liveTitle">Rozmowa na żywo</h2>
+      <button class="icon-btn" id="liveCloseTop" type="button" aria-label="Zamknij"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>
+    </div>
+    <div class="live-face"><canvas id="faceCanvas" aria-hidden="true"></canvas></div>
+    <div class="live-status"><p id="liveStatus" role="status"></p><p id="liveHint"></p></div>
+    <div class="live-tx" aria-live="polite"><p id="txUser"></p><p id="txBot"></p></div>
+    <div class="live-cards"><p class="cards-empty">Tu zobaczysz, co robię, i prośby o zgodę.</p><div id="liveSteps"></div><div id="livePending" aria-live="assertive"></div></div>
+    <div class="live-ctrl">
+      <button class="ctl" id="liveMute" type="button" aria-pressed="false" aria-label="Wycisz mikrofon"><span class="ball"><span class="glyph"></span></span><span class="lbl">Wycisz</span></button>
+      <button class="ctl mic" id="liveMic" type="button" aria-label="Zacznij rozmowę"><span class="ball"><span class="ring"></span><span class="glyph"></span></span><span class="lbl">Zacznij</span></button>
+      <button class="ctl" id="liveClose" type="button" aria-label="Zamknij rozmowę na żywo"><span class="ball"><span class="glyph"></span></span><span class="lbl">Zamknij</span></button>
+    </div>
+  </div>
+</section>
+
+<section id="pair" role="dialog" aria-labelledby="pairTitle">
+  <div class="pair-card">
+    <svg class="orb big" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle class="o-ring" cx="16" cy="16" r="13"/><circle class="o-arc" cx="16" cy="16" r="13" pathLength="100"/><circle class="o-core" cx="16" cy="16" r="7"/></svg>
+    <h2 id="pairTitle">Połącz z Concierge</h2>
+    <p>Na Macu otwórz Concierge, wejdź w ustawienia i zeskanuj kod aparatem iPhone'a. Albo wklej tu link do połączenia.</p>
+    <div class="field">
+      <input id="pairInput" type="text" inputmode="url" placeholder="Link do połączenia" aria-label="Link do połączenia" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="pairErr">
+      <button type="button" id="pairPaste" class="pill"></button>
+    </div>
+    <button class="btn ink wide" id="pairGo" type="button">Połącz</button>
+    <p class="err" id="pairErr" role="alert"></p>
+  </div>
+</section>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>

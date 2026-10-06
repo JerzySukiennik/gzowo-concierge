@@ -1,81 +1,90 @@
-// Gzowo Concierge - web app: chat UI, approvals, settings. Picks a transport: local host (Mac) or Firebase relay (phone).
-const $ = id => document.getElementById(id);
-const log = $('log'), input = $('input'), sendBtn = $('send'), pendingBox = $('pending'), banner = $('banner'), sheet = $('sheet'), scrim = $('scrim');
+// Gzowo Concierge - web app shell: state, transport wiring, composer, approvals, banner, live voice entry, pairing.
+import { icon } from './ui/icons.js';
+import { createThread } from './ui/thread.js';
+import { createSheet } from './ui/sheet.js';
+import { createSettings } from './ui/settings.js';
+import { createLiveScreen } from './ui/live.js';
 
-const LABELS = {
-  'calendar.read': 'Kalendarz: czytanie',
-  'calendar.write': 'Kalendarz: dodawanie i zmiany',
-  'calendar.delete': 'Kalendarz: usuwanie',
-  'web.search': 'Szukanie w sieci',
-  'memory.write': 'Zapamiętywanie',
-};
-const SUGGESTIONS = ['Co mam w tym tygodniu?', 'Dodaj sprawdzian z matmy w piątek o 8:00', 'Co nowego w Warszawie?'];
+const $ = id => document.getElementById(id);
+const app = $('app'), log = $('log'), input = $('input'), sendBtn = $('send'), pendingBox = $('pending'), banner = $('banner'), jump = $('jump'), dock = $('dock'), gear = $('gear'), sheetEl = $('sheet');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+const hoverDevice = matchMedia('(hover: hover) and (pointer: fine)');
+
+const SUGGESTIONS = [['calendar', 'Co mam w tym tygodniu?'], ['calendarPlus', 'Dodaj sprawdzian z matmy w piątek o 8:00'], ['globe', 'Co nowego w Warszawie?']];
 
 const ls = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
-const state = { online: true, link: true, busy: false, policies: {}, facts: {}, pending: {} };
-let transport = null;
-let dots = null;
-const chips = new Map();
-const bubbles = new Map();
+const state = { online: true, link: true, busy: false, policies: {}, facts: {}, pending: {}, overrides: {} };
+let transport = null, lastUserText = '', settling = true, settleTimer = 0, liveScreen = null, liveTimer = 0;
 
-function nearBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 90; }
-function scroll(force) { if (force || stick) log.scrollTop = log.scrollHeight; }
-let stick = true;
-log.addEventListener('scroll', () => { stick = nearBottom(); }, { passive: true });
+const thread = createThread({ log, root: $('thread'), onStick: s => jump.classList.toggle('on', !s && thread.hasContent()) });
 
-function clearEmpty() { const e = $('empty'); if (e) e.remove(); }
-function row(cls) {
-  clearEmpty();
-  const r = document.createElement('div'); r.className = 'row ' + (cls || '');
-  log.appendChild(r);
-  if (dots?.isConnected) log.appendChild(dots);
-  return r;
-}
+const settings = createSettings({ body: $('sheetBody'), toast: $('toast'), state, getTransport: () => transport, onCleared: () => { thread.clear(); lastUserText = ''; sheet.hide(); thread.showEmpty(SUGGESTIONS, submit); } });
 
-function addUser(text, cid, queued) {
-  if (cid && bubbles.has(cid)) { const b = bubbles.get(cid); if (!queued) b.classList.remove('queued'); return; }
-  const r = row('user'); const b = document.createElement('div');
-  b.className = 'bubble' + (queued ? ' queued' : ''); b.textContent = text; r.appendChild(b);
-  if (cid) bubbles.set(cid, b);
-  scroll(true);
-}
-function addAssistant(text) { const r = row(); const d = document.createElement('div'); d.className = 'assistant'; d.textContent = text; r.appendChild(d); scroll(); }
-function addError(msg) { const r = row(); const d = document.createElement('div'); d.className = 'error'; d.textContent = msg; r.appendChild(d); scroll(); }
-function setChip(key, text, status) {
-  let c = chips.get(key);
-  if (!c) { const r = row(); c = document.createElement('div'); c.innerHTML = '<i></i><span class="t"></span>'; r.appendChild(c); chips.set(key, c); }
-  c.className = 'chip ' + status; c.querySelector('.t').textContent = text; scroll();
+const sheet = createSheet({
+  el: sheetEl, body: $('sheetBody'), scrim: $('scrim'),
+  shifts: [$('thread'), $('dockInner')],
+  onOpen() {
+    settings.build();
+    gear.setAttribute('aria-expanded', 'true');
+    if (!sheet.isWide) { app.inert = true; requestAnimationFrame(() => sheetEl.focus({ preventScroll: true })); }
+  },
+  onClose() {
+    settings.commitUndo();
+    gear.setAttribute('aria-expanded', 'false');
+    app.inert = false;
+    if (!sheet.isWide || sheetEl.contains(document.activeElement)) gear.focus({ preventScroll: true });
+  },
+});
+gear.onclick = () => sheet.toggle();
+$('sheetClose').onclick = () => sheet.hide();
+
+function settle() {
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => {
+    settling = false;
+    thread.setAnimate(!reduce.matches);
+    if (!thread.hasContent()) thread.showEmpty(SUGGESTIONS, submit);
+  }, 450);
 }
 
 function onEvent(e) {
-  if (e.type === 'user') addUser(e.text, e.cid, false);
-  else if (e.type === 'text') addAssistant(e.text);
-  else if (e.type === 'tool') setChip((e.rid || '') + e.name + e.summary, e.summary, e.status);
-  else if (e.type === 'error') addError(e.message);
+  if (settling) settle();
+  if (e.type === 'user') { lastUserText = e.text; thread.addUser(e.text, e.cid, false); }
+  else if (e.type === 'text') thread.addAssistant(e.text);
+  else if (e.type === 'tool') thread.setStep((e.rid || '') + e.name + e.summary, e.name, e.summary, e.status, e.error);
+  else if (e.type === 'error') thread.addError(e.message, !e.live && lastUserText && !/autoryzacji/.test(e.message) ? () => transport.send(lastUserText, crypto.randomUUID()) : null);
 }
 
-function renderEmpty() {
-  if (log.children.length) return;
-  const e = document.createElement('div'); e.id = 'empty';
-  e.innerHTML = '<h2>Co mam dla Ciebie zrobić?</h2><div id="suggest"></div>';
-  SUGGESTIONS.forEach(s => { const b = document.createElement('button'); b.textContent = s; b.onclick = () => submit(s); e.querySelector('#suggest').appendChild(b); });
-  log.appendChild(e);
+function renderBusy() { thread.setBusy(state.busy); }
+
+function answer(id, yes) {
+  delete state.pending[id];
+  renderPending();
+  liveScreen?.syncPending(state.pending);
+  transport.approve(id, yes);
 }
 
-function renderBusy() {
-  if (state.busy && !dots) { dots = document.createElement('div'); dots.className = 'dots'; dots.innerHTML = '<b></b><b></b><b></b>'; clearEmpty(); log.appendChild(dots); scroll(); }
-  else if (!state.busy && dots) { dots.remove(); dots = null; }
-}
-
+const askNodes = new Map();
 function renderPending() {
-  pendingBox.textContent = '';
   for (const [id, summary] of Object.entries(state.pending)) {
-    const c = document.createElement('div'); c.className = 'card';
-    c.innerHTML = '<div class="q"></div><div class="btns"><button data-v="0">Nie</button><button data-v="1" class="go">Tak</button></div>';
-    c.querySelector('.q').textContent = summary;
-    c.querySelectorAll('button').forEach(b => b.onclick = () => { delete state.pending[id]; renderPending(); transport.approve(id, b.dataset.v === '1'); });
-    pendingBox.appendChild(c);
+    if (askNodes.has(id)) continue;
+    const c = document.createElement('div');
+    c.className = 'ask';
+    c.innerHTML = '<div class="ask-head"><span class="live-dot"></span><span>Czeka na Twoją zgodę</span></div><p class="ask-q"></p><div class="ask-btns"><button type="button" class="btn tonal" data-v="0">Nie</button><button type="button" class="btn ink" data-v="1">Tak</button></div>';
+    c.querySelector('.ask-q').textContent = summary;
+    c.querySelectorAll('button').forEach(b => b.onclick = () => answer(id, b.dataset.v === '1'));
+    askNodes.set(id, c);
+    pendingBox.append(c);
+    if (!settling && !reduce.matches) c.classList.add('enter');
+  }
+  for (const [id, c] of askNodes) {
+    if (id in state.pending) continue;
+    askNodes.delete(id);
+    if (reduce.matches || settling) { c.remove(); continue; }
+    c.classList.remove('enter'); c.classList.add('leave');
+    c.addEventListener('animationend', () => c.remove(), { once: true });
+    setTimeout(() => c.remove(), 400);
   }
 }
 
@@ -84,14 +93,26 @@ function renderBanner() {
   if (transport?.mode === 'relay') {
     if (!state.link) msg = 'Brak internetu na telefonie.';
     else if (!state.online) msg = 'Mac jest teraz niedostępny. Wiadomości poczekają do 10 minut.';
-  } else if (!state.online) msg = 'Brak połączenia z hostem.';
-  banner.textContent = msg; banner.classList.toggle('on', !!msg);
+  } else if (!state.online) msg = 'Concierge nie odpowiada. Sprawdź, czy działa na Macu.';
+  if (msg) banner.querySelector('span').textContent = msg;
+  banner.classList.toggle('on', !!msg);
+  app.dataset.state = !state.online || !state.link ? 'offline' : state.busy ? 'busy' : 'idle';
+  fit();
 }
 
 function mergeState(p) {
+  if (p.policies) {
+    const now = Date.now(), merged = { ...p.policies };
+    for (const [a, t] of Object.entries(state.overrides)) {
+      if (now - t > 4000 || merged[a] === state.policies[a]) delete state.overrides[a];
+      else if (state.policies[a]) merged[a] = state.policies[a];
+    }
+    p = { ...p, policies: merged };
+  }
   Object.assign(state, p);
   renderBusy(); renderPending(); renderBanner();
-  if (sheet.classList.contains('on')) renderSheet();
+  if (p.pending) liveScreen?.syncPending(state.pending);
+  if (sheet.isOpen) settings.sync();
 }
 
 function submit(text) {
@@ -99,114 +120,133 @@ function submit(text) {
   if (!text) return;
   input.value = ''; fit();
   const cid = crypto.randomUUID();
-  stick = true;
-  if (transport.mode === 'relay') addUser(text, cid, true); else addUser(text, null, false);
+  lastUserText = text;
+  if (transport.mode === 'relay') thread.addUser(text, cid, true); else thread.addUser(text, null, false);
   transport.send(text, cid);
+  if (!hoverDevice.matches) input.focus({ preventScroll: true });
 }
-$('form').onsubmit = e => { e.preventDefault(); submit(); };
-input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(hover: hover)').matches) { e.preventDefault(); submit(); } };
-function fit() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px'; input.style.overflowY = input.scrollHeight > 140 ? 'auto' : 'hidden'; sendBtn.disabled = !input.value.trim(); }
+
+function openLive() {
+  if (!liveScreen) return;
+  if (sheet.isOpen) sheet.hide();
+  app.inert = true;
+  liveScreen.show();
+  clearInterval(liveTimer);
+  if (transport.refresh) liveTimer = setInterval(() => transport.refresh(), 1500);
+}
+
+function closedLive() {
+  clearInterval(liveTimer);
+  app.inert = false;
+  fit();
+  if (hoverDevice.matches) input.focus({ preventScroll: true }); else sendBtn.focus({ preventScroll: true });
+}
+
+$('form').onsubmit = e => {
+  e.preventDefault();
+  if (!input.value.trim() && liveScreen) { openLive(); return; }
+  submit();
+};
+input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && hoverDevice.matches) { e.preventDefault(); submit(); } };
+function fit() {
+  input.style.height = 'auto';
+  const h = Math.min(input.scrollHeight, 168);
+  input.style.height = h + 'px';
+  input.style.overflowY = input.scrollHeight > 168 ? 'auto' : 'hidden';
+  const has = !!input.value.trim();
+  const mode = !has && liveScreen && state.online ? 'live' : 'send';
+  if (sendBtn.dataset.mode !== mode) { sendBtn.dataset.mode = mode; sendBtn.setAttribute('aria-label', mode === 'live' ? 'Rozmowa na żywo' : 'Wyślij'); }
+  sendBtn.disabled = mode === 'send' && !has;
+  sendBtn.classList.toggle('ready', has);
+}
 input.oninput = fit;
+
+new ResizeObserver(() => {
+  const h = dock.offsetHeight;
+  log.style.paddingBottom = h + 16 + 'px';
+  if (thread.stick) thread.toEnd(false);
+}).observe(dock);
+
+jump.onclick = () => thread.toEnd(true);
 
 const vv = window.visualViewport;
 if (vv) {
-  const app = $('app');
-  const sync = () => { app.style.height = vv.height + 'px'; app.style.top = vv.offsetTop + 'px'; app.style.bottom = 'auto'; scroll(); };
+  const sync = () => { app.style.height = vv.height + 'px'; app.style.top = vv.offsetTop + 'px'; app.style.bottom = 'auto'; app.classList.toggle('kb', innerHeight - vv.height > 120); if (thread.stick) thread.toEnd(false); };
   vv.addEventListener('resize', sync); vv.addEventListener('scroll', sync);
 }
 
-function seg(options, value, onPick) {
-  const s = document.createElement('div'); s.className = 'seg';
-  options.forEach(([v, label]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (v === value) b.className = 'on'; b.onclick = () => onPick(v); s.appendChild(b); });
-  return s;
-}
-function openSheet() { renderSheet(); sheet.classList.add('on'); scrim.classList.add('on'); }
-function closeSheet() { sheet.classList.remove('on'); scrim.classList.remove('on'); }
-$('gear').onclick = openSheet; scrim.onclick = closeSheet;
-
-async function renderSheet() {
-  const keep = sheet.scrollTop;
-  sheet.textContent = '';
-  const add = el => sheet.appendChild(el);
-  const h = t => { const e = document.createElement('h3'); e.textContent = t; add(e); };
-  const g = document.createElement('div'); g.className = 'grab'; add(g);
-
-  h('Kiedy pytać o zgodę');
-  const actions = Object.keys(state.policies).sort();
-  actions.forEach(a => {
-    const l = document.createElement('div'); l.className = 'line';
-    const t = document.createElement('span'); t.textContent = LABELS[a] || a; l.appendChild(t);
-    l.appendChild(seg([['auto', 'Rób sam'], ['ask', 'Pytaj']], state.policies[a], v => { state.policies[a] = v; renderSheet(); transport.setPolicy(a, v); }));
-    add(l);
-  });
-
-  h('Pamięć');
-  const ids = Object.keys(state.facts);
-  if (!ids.length) { const m = document.createElement('div'); m.className = 'muted'; m.textContent = 'Jeszcze nic. Powiedz mi coś o sobie, a zapamiętam.'; add(m); }
-  ids.forEach(id => {
-    const l = document.createElement('div'); l.className = 'line';
-    const t = document.createElement('span'); t.textContent = state.facts[id]; l.appendChild(t);
-    const b = document.createElement('button'); b.className = 'mini danger'; b.textContent = 'Usuń'; b.onclick = () => { delete state.facts[id]; renderSheet(); transport.forget(Number(id)); };
-    l.appendChild(b); add(l);
-  });
-
-  if (transport.mode === 'local') {
-    h('iPhone');
-    const m = document.createElement('div'); m.className = 'muted'; m.textContent = 'Zeskanuj aparatem iPhone\'a, otwórz link w Safari i dodaj do ekranu początkowego.'; add(m);
-    const q = document.createElement('div'); q.id = 'qr'; add(q);
-    const copy = document.createElement('button'); copy.className = 'mini'; copy.textContent = 'Kopiuj link'; add(copy);
-    try {
-      const url = await transport.pairingUrl();
-      copy.onclick = async () => { try { await navigator.clipboard.writeText(url); copy.textContent = 'Skopiowano'; } catch { copy.textContent = url; } };
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js');
-      const qr = window.qrcode(0, 'M'); qr.addData(url); qr.make();
-      q.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
-    } catch { q.textContent = 'Kod QR niedostępny.'; }
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (liveScreen?.isOpen) { liveScreen.hide(); return; }
+    if (sheet.isOpen) { sheet.hide(); return; }
   }
-
-  h('Rozmowa');
-  const clr = document.createElement('button'); clr.className = 'mini danger'; clr.textContent = 'Wyczyść rozmowę';
-  clr.onclick = async () => { await transport.clear(); log.textContent = ''; chips.clear(); bubbles.clear(); renderEmpty(); closeSheet(); };
-  add(clr);
-  sheet.scrollTop = keep;
-}
-function loadScript(src) {
-  return new Promise((res, rej) => { if (window.qrcode) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-}
+  if ((e.metaKey || e.ctrlKey) && e.key === ',' && !liveScreen?.isOpen) { e.preventDefault(); sheet.toggle(); return; }
+  const t = e.target;
+  if (hoverDevice.matches && !sheet.isOpen && !liveScreen?.isOpen && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|BUTTON|SELECT|A)$/.test(t.tagName) && !$('pair').classList.contains('on')) input.focus({ preventScroll: true });
+});
 
 function sidFromHash() {
   const m = location.hash.match(/s=([A-Za-z0-9_-]{40,})/);
   return m ? m[1] : null;
 }
+
 function pinManifest(sid) {
   try {
     const base = location.origin + location.pathname.replace(/[^/]*$/, '');
-    const man = { name: 'Gzowo Concierge', short_name: 'Concierge', start_url: base + '#s=' + sid, scope: base, display: 'standalone', background_color: '#0b0b0c', theme_color: '#0b0b0c', icons: [{ src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }] };
+    const man = { name: 'Gzowo Concierge', short_name: 'Concierge', start_url: base + '#s=' + sid, scope: base, display: 'standalone', background_color: '#0d0d0f', theme_color: '#0d0d0f', icons: [{ src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }] };
     $('manifest').href = URL.createObjectURL(new Blob([JSON.stringify(man)], { type: 'application/manifest+json' }));
   } catch {}
 }
 
 function showPair() {
-  $('pair').classList.add('on');
+  const pair = $('pair'), field = $('pairInput'), err = $('pairErr');
+  pair.classList.add('on'); app.inert = true;
   const go = () => {
-    const m = $('pairInput').value.match(/s=([A-Za-z0-9_-]{40,})/) || $('pairInput').value.trim().match(/^([A-Za-z0-9_-]{40,})$/);
-    if (!m) { $('pairErr').textContent = 'To nie wygląda jak link do połączenia.'; return; }
+    const raw = field.value.trim();
+    const m = raw.match(/s=([A-Za-z0-9_-]{40,})/) || raw.match(/^([A-Za-z0-9_-]{40,})$/);
+    if (!m) { err.textContent = 'To nie wygląda jak link do połączenia. Skopiuj go jeszcze raz z Maca.'; field.setAttribute('aria-invalid', 'true'); return; }
     ls.set('sid', m[1]); location.hash = 's=' + m[1]; location.reload();
   };
   $('pairGo').onclick = go;
-  $('pairInput').onkeydown = e => { if (e.key === 'Enter') go(); };
+  field.oninput = () => { err.textContent = ''; field.removeAttribute('aria-invalid'); };
+  field.onkeydown = e => { if (e.key === 'Enter') go(); };
+  const paste = $('pairPaste');
+  if (navigator.clipboard?.readText) paste.onclick = async () => { try { field.value = await navigator.clipboard.readText(); field.dispatchEvent(new Event('input')); field.focus(); } catch { field.focus(); } };
+  else paste.hidden = true;
+}
+
+async function setupLive(demo) {
+  if (transport.mode !== 'local') return;
+  if (!demo && !(window.isSecureContext && navigator.mediaDevices?.getUserMedia && 'WebSocket' in window)) return;
+  let factory = null;
+  try { factory = (await import(demo ? './transport-demo.js' : './live-audio.js')).createLive; } catch { return; }
+  if (typeof factory !== 'function') return;
+  liveScreen = createLiveScreen({
+    root: $('live'), factory,
+    forward: e => onEvent({ ...e, live: true }),
+    approve: answer,
+    getPending: () => state.pending,
+    setPending: map => mergeState({ pending: map }),
+    onFinal: (role, text) => { if (role === 'user') { lastUserText = text; thread.addUser(text, null, false); } else thread.addAssistant(text); },
+    onClose: closedLive,
+  });
+  fit();
 }
 
 async function boot() {
+  $('jump').innerHTML = icon('down', 20);
+  $('sheetClose').innerHTML = icon('close', 20);
+  $('pairPaste').innerHTML = icon('paste', 18) + '<span>Wklej</span>';
   fit();
   const qs = new URLSearchParams(location.search);
-  const relay = /(\.web\.app|\.firebaseapp\.com)$/.test(location.hostname) || qs.get('relay') === '1';
-  const on = {
-    event: onEvent,
-    state: mergeState,
-    queued: (cid, text) => { if (cid) addUser(text, cid, true); },
-  };
-  if (relay) {
+  const demo = qs.get('demo');
+  const relay = !demo && (/(\.web\.app|\.firebaseapp\.com)$/.test(location.hostname) || qs.get('relay') === '1');
+  const on = { event: onEvent, state: mergeState, queued: (cid, text) => { if (cid) thread.addUser(text, cid, true); } };
+  if (demo === 'pair') { showPair(); return; }
+  if (demo) {
+    const { createDemo } = await import('./transport-demo.js');
+    transport = createDemo(on, { scene: demo === '1' ? (qs.get('scene') || 'chat') : demo, mode: qs.get('mode') === 'relay' ? 'relay' : 'local' });
+  } else if (relay) {
     const sid = sidFromHash() || ls.get('sid');
     if (!sid) { showPair(); return; }
     ls.set('sid', sid);
@@ -219,7 +259,11 @@ async function boot() {
     transport = createHttp(on);
   }
   await transport.start();
-  setTimeout(renderEmpty, 600);
-  input.focus({ preventScroll: true });
+  settle();
+  setTimeout(() => { if (settling) { settling = false; thread.setAnimate(!reduce.matches); if (!thread.hasContent()) thread.showEmpty(SUGGESTIONS, submit); } }, 3500);
+  if (hoverDevice.matches) input.focus({ preventScroll: true });
+  await setupLive(!!demo);
+  if (demo && (qs.get('scene') === 'live' || qs.get('live') === '1')) openLive();
 }
-boot().catch(err => { addError('Nie udało się uruchomić: ' + (err.message || err)); });
+
+boot().catch(err => { thread.addError('Nie udało się uruchomić: ' + (err.message || err)); });
