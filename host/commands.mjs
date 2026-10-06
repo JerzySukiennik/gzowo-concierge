@@ -2,6 +2,7 @@
 import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import { run, resolveApproval } from './agent.mjs';
+import { live } from './live-state.mjs';
 import { store } from './db.mjs';
 import { listPolicies, setPolicy } from './tools/index.mjs';
 
@@ -48,7 +49,11 @@ export function chat(text, send = () => {}, { cid } = {}) {
 export function approve(id, yes, send = () => {}) {
   const rid = crypto.randomUUID();
   const emit = track(rid, send);
-  return queue(THREAD, () => tracked(() => resolveApproval(id, yes, emit)))
+  const quiet = live.sessions.size > 0;
+  return queue(THREAD, () => tracked(async () => {
+    const r = await resolveApproval(id, yes, emit, { quiet });
+    if (quiet && r) bus.emit('approval-result', r);
+  }))
     .catch(err => emit({ type: 'error', message: String(err.message || err) }));
 }
 

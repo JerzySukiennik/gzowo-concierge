@@ -6,6 +6,23 @@ import { declarations, toolByName, policyFor } from './tools/index.mjs';
 
 const MAX_STEPS = 8;
 
+export async function callTool(thread, call, emit) {
+  const tool = toolByName[call.name];
+  const args = call.args || {};
+  if (!tool) return { ok: false, error: 'unknown tool' };
+  const summary = tool.summarize(args);
+  if (policyFor(tool) === 'ask') {
+    const ask = tool.askText ? tool.askText(args) : summary;
+    const id = store.createApproval({ thread, action: tool.action, tool: tool.name, args, summary: ask });
+    emit({ type: 'approval', id, summary: ask });
+    return { ok: false, status: 'pending_approval', note: 'Waiting for the user to approve in the app.' };
+  }
+  emit({ type: 'tool', name: tool.name, summary, status: 'running' });
+  const response = await executeTool(tool, args);
+  emit({ type: 'tool', name: tool.name, summary, status: response.ok ? 'done' : 'failed', error: response.error });
+  return response;
+}
+
 async function executeTool(tool, args) {
   try {
     const result = await tool.run(args);
@@ -26,9 +43,10 @@ async function loop(thread, emit) {
     let res = await generate({ system: systemPrompt(), contents, tools: declarations() });
     let cand = res.candidates?.[0];
     let parts = cand?.content?.parts;
-    if (!parts?.length && contents.at(-1)?.parts.some(p => p.functionResponse)) {
-      const nudge = [...contents, { role: 'user', parts: [{ text: '[System: tool calls are done. Now reply to the user briefly in Polish.]' }] }];
-      res = await generate({ system: systemPrompt(), contents: nudge, tools: declarations() });
+    for (let retry = 0; retry < 2 && !parts?.length; retry++) {
+      const afterTool = contents.at(-1)?.parts.some(p => p.functionResponse);
+      const extra = afterTool ? [{ role: 'user', parts: [{ text: '[System: tool calls are done. Now reply to the user briefly in Polish.]' }] }] : [];
+      res = await generate({ system: systemPrompt(), contents: [...contents, ...extra], tools: declarations() });
       cand = res.candidates?.[0];
       parts = cand?.content?.parts;
     }
@@ -46,38 +64,21 @@ async function loop(thread, emit) {
     if (!calls.length) return;
 
     const responses = [];
-    for (const call of calls) {
-      const tool = toolByName[call.name];
-      const args = call.args || {};
-      if (!tool) {
-        responses.push({ functionResponse: { name: call.name, response: { ok: false, error: 'unknown tool' } } });
-        continue;
-      }
-      const summary = tool.summarize(args);
-      if (policyFor(tool) === 'ask') {
-        const ask = tool.askText ? tool.askText(args) : summary;
-        const id = store.createApproval({ thread, action: tool.action, tool: tool.name, args, summary: ask });
-        emit({ type: 'approval', id, summary: ask });
-        responses.push({ functionResponse: { name: call.name, response: { ok: false, status: 'pending_approval', note: 'Waiting for the user to approve in the app.' } } });
-        continue;
-      }
-      emit({ type: 'tool', name: tool.name, summary, status: 'running' });
-      const response = await executeTool(tool, args);
-      emit({ type: 'tool', name: tool.name, summary, status: response.ok ? 'done' : 'failed', error: response.error });
-      responses.push({ functionResponse: { name: call.name, response } });
-    }
+    for (const call of calls) responses.push({ functionResponse: { name: call.name, response: await callTool(thread, call, emit) } });
     store.addContent(thread, { role: 'user', parts: responses });
   }
   emit({ type: 'error', message: 'Too many steps, stopped.' });
 }
 
-export async function resolveApproval(id, approve, emit) {
+export async function resolveApproval(id, approve, emit, { quiet = false } = {}) {
   const a = store.getApproval(id);
   if (!a || a.status !== 'pending') throw new Error('approval not found or already resolved');
   const tool = toolByName[a.tool];
   if (!approve) {
     store.resolveApproval(id, 'denied');
-    store.addContent(a.thread, { role: 'user', parts: [{ text: `[System: the user DENIED this action: ${a.summary}. Do not retry it.]` }] });
+    const note = `[System: the user DENIED this action: ${a.summary}. Do not retry it.]`;
+    store.addContent(a.thread, { role: 'user', parts: [{ text: note }] });
+    if (quiet) return { approved: false, summary: a.summary, note };
     await loop(a.thread, emit);
     return;
   }
@@ -86,6 +87,8 @@ export async function resolveApproval(id, approve, emit) {
   const response = await executeTool(tool, a.args);
   emit({ type: 'tool', name: tool.name, summary: doing, status: response.ok ? 'done' : 'failed', error: response.error });
   store.resolveApproval(id, response.ok ? 'done' : 'failed', response);
-  store.addContent(a.thread, { role: 'user', parts: [{ text: `[System: the user APPROVED "${a.summary}" and it was executed. Result: ${JSON.stringify(response)}]` }] });
+  const note = `[System: the user APPROVED "${a.summary}" and it was executed. Result: ${JSON.stringify(response)}]`;
+  store.addContent(a.thread, { role: 'user', parts: [{ text: note }] });
+  if (quiet) return { approved: true, ok: response.ok, summary: a.summary, note };
   await loop(a.thread, emit);
 }

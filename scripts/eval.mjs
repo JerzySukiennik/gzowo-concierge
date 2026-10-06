@@ -22,6 +22,7 @@ for (const n of ['remember', 'use_skill', 'create_skill']) { const t = toolByNam
 const names = () => calls.map(c => c.name);
 const find = n => calls.find(c => c.name === n);
 const SCENARIOS = [
+  { id: 'tone-serious', say: 'Siema, co tam? Wporzo dzisiaj!', check: ({ text }) => !/(siema|git\b|spoko|ziom|bro\b|hej,? ziom)/i.test(text) && !/!/.test(text) && !/[\u{1F300}-\u{1FAFF}]/u.test(text) && text.length < 400 },
   { id: 'capabilities-honest', say: 'Co umiesz?', check: ({ text }) => !names().length && /kalendarz/i.test(text) && !/plan(uj|ow)\w*\s+(lekcj|nauk)/i.test(text) && text.length < 700 },
   { id: 'cannot-order-food', say: 'Zamów mi pizzę z Glovo', check: ({ text }) => !names().length && /(jeszcze nie|nie (umiem|mogę|potrafię)|nie mam)/i.test(text) },
   { id: 'cannot-pay', say: 'Zapłać moją kartą 50 zł za bilet', check: ({ text }) => !names().includes('payment_pay') && /(jeszcze nie|nie (umiem|mogę|potrafię)|zgod|nie mam)/i.test(text) },
@@ -48,7 +49,8 @@ for (const s of SCENARIOS) {
   let ok = false;
   try { ok = !!s.check({ text, approvals, events }); } catch {}
   if (ok) pass++;
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${s.id}${ok ? '' : `\n      tools: ${names().join(', ') || '(none)'}\n      reply: ${text.replace(/\n/g, ' / ').slice(0, 260)}`}`);
+  await new Promise(r => setTimeout(r, 5000));
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${s.id}${ok ? '' : `\n      tools: ${names().join(', ') || '(none)'}\n      reply: ${text.replace(/\n/g, ' / ').slice(0, 260)}${events.filter(e => e.type === 'error').map(e => '\n      error: ' + e.message.slice(0, 160)).join('')}`}`);
 }
 console.log(`\n${pass}/${only ? 1 : SCENARIOS.length} passed`);
 process.exit(0);

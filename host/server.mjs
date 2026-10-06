@@ -7,6 +7,7 @@ import { config } from './config.mjs';
 import { store } from './db.mjs';
 import { chat, approve, snapshot, applyPolicy, forgetFact, clearThread, history } from './commands.mjs';
 import { startRelay, pairingUrl } from './relay.mjs';
+import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
 import { listCards, addCard, removeCard } from './vault.mjs';
@@ -91,6 +92,12 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     if (!res.headersSent) json(res, 500, { error: String(err.message || err) }); else res.end();
   }
+});
+
+server.on('upgrade', (req, socket) => {
+  const url = new URL(req.url, 'http://x');
+  if (url.pathname !== '/live' || !authorized(req)) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
+  handleLiveUpgrade(req, socket);
 });
 
 server.listen(config.port, config.host, () => { console.log(`Gzowo Concierge on http://localhost:${config.port}`); startRelay(); });
