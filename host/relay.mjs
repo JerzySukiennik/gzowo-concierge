@@ -1,7 +1,7 @@
 // Gzowo Concierge - Firebase Realtime Database relay: the phone and the host both connect outbound.
 // Layout under /c/<sid>: inbox (phone -> host commands), feed (host -> phone events), state (snapshot + heartbeat).
 import { config } from './config.mjs';
-import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread, newThread, renameThread, deleteThread, restoreThread, validThread } from './commands.mjs';
+import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread, setAvatar, newThread, renameThread, deleteThread, restoreThread, validThread } from './commands.mjs';
 import { today } from './today.mjs';
 import { callTool } from './agent.mjs';
 import { store } from './db.mjs';
@@ -58,7 +58,7 @@ export function startRelay() {
     const cs = connectorSummary();
     const labels = {}; for (const [k, v] of Object.entries(s.labels || {})) labels[k.replace(/\./g, '_')] = v;
     const threads = {}; for (const t of s.threads) threads[t.id] = { title: t.title, updated: t.updated, busy: !!t.busy };
-    return { busy: s.busy, policies, facts, pending, labels, connectors: cs.states, connectorMeta: cs.meta, threads };
+    return { busy: s.busy, policies, facts, pending, labels, connectors: cs.states, connectorMeta: cs.meta, threads, avatar: s.avatar };
   };
   let statePending = false;
   const pushState = () => {
@@ -138,6 +138,7 @@ export function startRelay() {
       else if (m.type === 'thread-delete') deleteThread(validThread(m.thread));
       else if (m.type === 'thread-restore') restoreThread(validThread(m.thread));
       else if (m.type === 'today-refresh') refreshToday();
+      else if (m.type === 'avatar') setAvatar(String(m.shape || ''), String(m.color || ''));
       else if (m.type === 'live-token' && ID.test(m.cid || '')) liveToken(m);
       else if (m.type === 'live-tool' && ID.test(m.cid || '') && ID.test(m.callId || '')) liveTool(m);
       else if (m.type === 'live-turn' && ID.test(m.cid || '')) liveTurn(m);

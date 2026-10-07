@@ -7,6 +7,7 @@ import { config } from './config.mjs';
 import { store } from './db.mjs';
 import { chat, approve, snapshot, applyPolicy, forgetFact, clearThread, history, newThread, renameThread, deleteThread, restoreThread, threadList, validThread } from './commands.mjs';
 import { today } from './today.mjs';
+import { getAvatar, setAvatar } from './commands.mjs';
 import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
@@ -43,6 +44,10 @@ async function api(req, res, url) {
   if (p === '/api/health') return json(res, 200, { ok: true, model: config.chatModel, time: new Date().toISOString() });
   if (p === '/api/state') return json(res, 200, snapshot());
   if (p === '/api/history') return json(res, 200, { messages: history(url.searchParams.get('thread') || 'main'), ...snapshot() });
+  if (p === '/api/avatar') {
+    if (req.method === 'POST') { const { shape, color } = await readBody(req); return json(res, 200, setAvatar(shape, color)); }
+    return json(res, 200, getAvatar());
+  }
   if (p === '/api/today') return json(res, 200, await today(url.searchParams.get('refresh') === '1'));
   if (p === '/api/threads' && req.method === 'GET') return json(res, 200, { threads: threadList() });
   if (p === '/api/threads' && req.method === 'POST') return json(res, 200, { id: newThread() });

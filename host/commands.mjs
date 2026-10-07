@@ -9,6 +9,18 @@ import { policyLabels } from './connectors/index.mjs';
 import { live } from './live-state.mjs';
 
 export const THREAD = 'main';
+
+const SHAPES = ['circle', 'pebble', 'squircle', 'capsule', 'triangle', 'hexagon', 'cloud', 'droplet'];
+export function getAvatar() {
+  const a = store.getSetting('avatar', null) || {};
+  return { shape: SHAPES.includes(a.shape) ? a.shape : 'circle', color: typeof a.color === 'string' && /^[\w#-]{1,24}$/.test(a.color) ? a.color : 'sky' };
+}
+export function setAvatar(shape, color) {
+  const next = { shape: SHAPES.includes(shape) ? shape : getAvatar().shape, color: typeof color === 'string' && /^[\w#-]{1,24}$/.test(color) ? color : getAvatar().color };
+  store.setSetting('avatar', next);
+  bus.emit('state');
+  return next;
+}
 export const bus = new EventEmitter();
 const locks = new Map();
 const active = new Map();
@@ -37,6 +49,7 @@ export function snapshot() {
     facts: store.facts(),
     pending: store.pendingApprovals().map(a => ({ id: a.id, summary: a.summary, thread: a.thread })),
     threads: threadList(),
+    avatar: getAvatar(),
   };
 }
 
