@@ -43,7 +43,7 @@ export const config = {
   relay: {
     dbUrl: (env.FIREBASE_DB_URL || 'https://gzowo-concierge-default-rtdb.europe-west1.firebasedatabase.app').replace(/\/$/, ''),
     sid: env.RELAY_SID,
-    hostingUrl: (env.HOSTING_URL || 'https://gzowo-concierge.web.app').replace(/\/$/, ''),
+    hostingUrl: (env.HOSTING_URL || 'https://concierge.gzowo.fun').replace(/\/$/, ''),
     enabled: env.RELAY !== 'off',
     apiKey: env.FIREBASE_API_KEY || '',
     hostEmail: env.HOST_EMAIL || '',
