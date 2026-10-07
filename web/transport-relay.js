@@ -1,13 +1,11 @@
 // Gzowo Concierge - phone transport: Firebase Realtime Database relay (the Mac host connects outbound too).
-import { firebaseConfig } from './config.js';
+import { getFb } from './firebase.js';
+import { accountEmail, signOutNow } from './auth.js';
 
-const SDK = 'https://www.gstatic.com/firebasejs/12.4.0/';
-
-export async function createRelay(sid, on) {
-  const [{ initializeApp }, db] = await Promise.all([import(SDK + 'firebase-app.js'), import(SDK + 'firebase-database.js')]);
-  const { getDatabase, ref, push, onValue, onChildAdded, query, limitToLast, serverTimestamp } = db;
-  const d = getDatabase(initializeApp(firebaseConfig));
-  const root = 'c/' + sid;
+export async function createRelay(on) {
+  const { dbMod, db: d } = await getFb();
+  const { ref, push, onValue, onChildAdded, query, limitToLast, serverTimestamp } = dbMod;
+  const root = 'u/main';
   let offset = 0, hostTs = 0, link = true;
 
   const send = msg => push(ref(d, root + '/inbox'), { ...msg, ts: serverTimestamp() });
@@ -64,6 +62,7 @@ export async function createRelay(sid, on) {
   return {
     mode: 'relay',
     liveBridge: { open: openLive },
+    account: { email: await accountEmail(), signOut: async () => { await signOutNow(); location.reload(); } },
     async start() {},
     send(text, cid) { send({ type: 'chat', text, cid }); },
     approve(id, yes) { send({ type: 'approval', id, approve: yes }); },

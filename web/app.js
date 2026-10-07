@@ -1,4 +1,4 @@
-// Gzowo Concierge - web app shell: state, transport wiring, composer, approvals, banner, live voice entry, pairing.
+// Gzowo Concierge - web app shell: state, transport wiring, composer, approvals, banner, live voice entry, login gate.
 import { icon } from './ui/icons.js';
 import { createThread } from './ui/thread.js';
 import { createSheet } from './ui/sheet.js';
@@ -12,7 +12,6 @@ const hoverDevice = matchMedia('(hover: hover) and (pointer: fine)');
 
 const SUGGESTIONS = [['calendar', 'Co mam w tym tygodniu?'], ['calendarPlus', 'Dodaj sprawdzian z matmy w piątek o 8:00'], ['globe', 'Co nowego w Warszawie?']];
 
-const ls = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
 const state = { online: true, link: true, busy: false, policies: {}, facts: {}, pending: {}, overrides: {} };
 let transport = null, lastUserText = '', settling = true, settleTimer = 0, liveScreen = null, liveTimer = 0;
@@ -182,38 +181,8 @@ document.addEventListener('keydown', e => {
   }
   if ((e.metaKey || e.ctrlKey) && e.key === ',' && !liveScreen?.isOpen) { e.preventDefault(); sheet.toggle(); return; }
   const t = e.target;
-  if (hoverDevice.matches && !sheet.isOpen && !liveScreen?.isOpen && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|BUTTON|SELECT|A)$/.test(t.tagName) && !$('pair').classList.contains('on')) input.focus({ preventScroll: true });
+  if (hoverDevice.matches && !sheet.isOpen && !liveScreen?.isOpen && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|BUTTON|SELECT|A)$/.test(t.tagName) && !$('login').classList.contains('on')) input.focus({ preventScroll: true });
 });
-
-function sidFromHash() {
-  const m = location.hash.match(/s=([A-Za-z0-9_-]{40,})/);
-  return m ? m[1] : null;
-}
-
-function pinManifest(sid) {
-  try {
-    const base = location.origin + location.pathname.replace(/[^/]*$/, '');
-    const man = { name: 'Gzowo Concierge', short_name: 'Concierge', start_url: base + '#s=' + sid, scope: base, display: 'standalone', background_color: '#0d0d0f', theme_color: '#0d0d0f', icons: [{ src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' }, { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }] };
-    $('manifest').href = URL.createObjectURL(new Blob([JSON.stringify(man)], { type: 'application/manifest+json' }));
-  } catch {}
-}
-
-function showPair() {
-  const pair = $('pair'), field = $('pairInput'), err = $('pairErr');
-  pair.classList.add('on'); app.inert = true;
-  const go = () => {
-    const raw = field.value.trim();
-    const m = raw.match(/s=([A-Za-z0-9_-]{40,})/) || raw.match(/^([A-Za-z0-9_-]{40,})$/);
-    if (!m) { err.textContent = 'To nie wygląda jak link do połączenia. Skopiuj go jeszcze raz z Maca.'; field.setAttribute('aria-invalid', 'true'); return; }
-    ls.set('sid', m[1]); location.hash = 's=' + m[1]; location.reload();
-  };
-  $('pairGo').onclick = go;
-  field.oninput = () => { err.textContent = ''; field.removeAttribute('aria-invalid'); };
-  field.onkeydown = e => { if (e.key === 'Enter') go(); };
-  const paste = $('pairPaste');
-  if (navigator.clipboard?.readText) paste.onclick = async () => { try { field.value = await navigator.clipboard.readText(); field.dispatchEvent(new Event('input')); field.focus(); } catch { field.focus(); } };
-  else paste.hidden = true;
-}
 
 async function setupLive(demo) {
   const direct = transport.mode === 'relay' && !demo ? transport.liveBridge : null;
@@ -238,24 +207,20 @@ async function setupLive(demo) {
 async function boot() {
   $('jump').innerHTML = icon('down', 20);
   $('sheetClose').innerHTML = icon('close', 20);
-  $('pairPaste').innerHTML = icon('paste', 18) + '<span>Wklej</span>';
   fit();
   const qs = new URLSearchParams(location.search);
   const demo = qs.get('demo');
   const relay = !demo && (/(\.web\.app|\.firebaseapp\.com)$/.test(location.hostname) || qs.get('relay') === '1');
   const on = { event: onEvent, state: mergeState, queued: (cid, text) => { if (cid) thread.addUser(text, cid, true); } };
-  if (demo === 'pair') { showPair(); return; }
+  if (demo === 'login') { $('login').classList.add('on'); app.inert = true; return; }
   if (demo) {
     const { createDemo } = await import('./transport-demo.js');
     transport = createDemo(on, { scene: demo === '1' ? (qs.get('scene') || 'chat') : demo, mode: qs.get('mode') === 'relay' ? 'relay' : 'local' });
   } else if (relay) {
-    const sid = sidFromHash() || ls.get('sid');
-    if (!sid) { showPair(); return; }
-    ls.set('sid', sid);
-    if (!location.hash.includes(sid)) history.replaceState(null, '', location.pathname + location.search + '#s=' + sid);
-    pinManifest(sid);
+    const { requireLogin } = await import('./auth.js');
+    await requireLogin(app);
     const { createRelay } = await import('./transport-relay.js');
-    transport = await createRelay(sid, on);
+    transport = await createRelay(on);
   } else {
     const { createHttp } = await import('./transport-http.js');
     transport = createHttp(on);

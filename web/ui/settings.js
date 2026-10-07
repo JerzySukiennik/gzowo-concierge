@@ -1,4 +1,4 @@
-// Gzowo Concierge - settings content: approval switches, memory, persona, skills, cards (Mac only), iPhone pairing QR, clear chat; deletes are undoable.
+// Gzowo Concierge - settings content: approval switches, memory, persona, skills, cards (Mac only), iPhone QR link, clear chat; deletes are undoable.
 import { icon } from './icons.js';
 
 const LABELS = {
@@ -256,7 +256,7 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
     const transport = getTransport();
     if (transport.mode !== 'local') return;
     const s = section('iPhone');
-    s.append(el('p', 'foot flush', 'Zeskanuj kod aparatem iPhone\'a, otwórz link w Safari i dodaj do ekranu początkowego.'));
+    s.append(el('p', 'foot flush', 'Zeskanuj kod aparatem iPhone\'a, otwórz stronę w Safari, zaloguj się i dodaj ją do ekranu początkowego.'));
     const qr = el('div', 'qr');
     const copy = el('button', 'pill block', icon('copy', 18) + '<span>Kopiuj link</span>');
     copy.type = 'button';
@@ -272,6 +272,17 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
       qr.innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
       qr.setAttribute('role', 'img'); qr.setAttribute('aria-label', 'Kod QR do połączenia z iPhonem');
     } catch { qr.classList.add('off'); qr.textContent = 'Kod QR niedostępny.'; }
+  }
+
+  function accountSection() {
+    const acc = getTransport().account;
+    if (!acc) return;
+    const s = section('Konto');
+    if (acc.email) s.append(el('p', 'foot flush', 'Zalogowano jako ' + acc.email + '.'));
+    const out = el('button', 'pill block', '<span>Wyloguj to urządzenie</span>');
+    out.type = 'button';
+    out.onclick = async () => { out.disabled = true; await acc.signOut(); };
+    s.append(out);
   }
 
   function chatSection() {
@@ -311,6 +322,7 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
     if (t.listCards && localHost) cardsSection(t, my);
     phoneSection();
     chatSection();
+    accountSection();
     sync();
   }
 

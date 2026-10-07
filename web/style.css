@@ -247,23 +247,29 @@ button:active:not(:disabled) { transition-duration: .06s, .06s, .06s, .06s; }
 #toast.on { opacity: 1; pointer-events: auto; transform: none; }
 #toast .pill { background: rgba(127, 127, 135, .3); color: inherit; }
 
-#pair { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; background: var(--bg); }
-#pair.on { display: flex; }
-.pair-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; animation: rise .7s var(--spring) both; }
-.pair-card h2 { margin: 10px 0 0; font-size: 1.65rem; line-height: 1.15; font-weight: 700; letter-spacing: -.028em; }
-.pair-card p { margin: 0; color: var(--dim); font-size: .94rem; line-height: 1.45; text-wrap: pretty; }
-.pair-card .orb .o-arc { opacity: 1; animation: orbit 3.2s linear infinite; }
-.pair-card .orb .o-ring { stroke: var(--line-2); }
+#login { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; background: var(--bg); }
+#login.on { display: flex; }
+.login-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; animation: rise .7s var(--spring) both; }
+.login-card h2 { margin: 10px 0 0; font-size: 1.65rem; line-height: 1.15; font-weight: 700; letter-spacing: -.028em; }
+.login-card p { margin: 0; color: var(--dim); font-size: .94rem; line-height: 1.45; text-wrap: pretty; }
+.login-card .orb .o-arc { opacity: 1; animation: orbit 3.2s linear infinite; }
+.login-card .orb .o-ring { stroke: var(--line-2); }
 .field { position: relative; width: 100%; margin-top: 8px; }
 .field input { width: 100%; height: 52px; padding: 0 104px 0 20px; border: 1px solid var(--line-2); border-radius: 26px; outline: 0; background: var(--surface); font-size: max(16px, 1rem); transition: border-color .2s, box-shadow .2s; }
 .field input::placeholder { color: var(--faint); opacity: 1; }
 .field input:focus { border-color: var(--focus-line); box-shadow: 0 0 0 3px var(--line); }
 .field input[aria-invalid="true"] { border-color: var(--err); }
 .field .pill { position: absolute; right: 8px; top: 8px; }
-.pair-card .btn { margin-top: 2px; }
-.pair-card .err { min-height: 1.3em; color: var(--err); font-size: .88rem; }
+.field.plain input { padding: 0 20px; }
+.login-form { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.login-form .field { margin-top: 0; }
+.login-card .link { border: 0; background: none; color: var(--dim); font-size: .92rem; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+.login-card .link:hover { color: var(--ink, var(--text)); }
+.login-card .err.info { color: var(--dim); }
+.login-card .btn { margin-top: 2px; }
+.login-card .err { min-height: 1.3em; color: var(--err); font-size: .88rem; }
 @media (min-width: 600px) {
-  .pair-card { padding: 44px 36px 36px; border-radius: 34px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-m); }
+  .login-card { padding: 44px 36px 36px; border-radius: 34px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-m); }
 }
 
 @media (min-width: 900px) {
@@ -294,11 +300,11 @@ button:active:not(:disabled) { transition-duration: .06s, .06s, .06s, .06s; }
 .row.user.enter { transform-origin: 100% 100%; animation-name: rise-user; }
 
 @media (prefers-reduced-motion: reduce) {
-  .enter, .row.user.enter, .empty > *, .pair-card { animation: fade .2s both; }
+  .enter, .row.user.enter, .empty > *, .login-card { animation: fade .2s both; }
   .ask.enter { animation: fade .2s both; }
   .ask.leave { animation: sink .15s both; }
   .hero .orb, #send.ready { animation: none; }
-  .spin, .o-arc, #app[data-state="busy"] .bar .o-arc, .working .o-arc, .pair-card .orb .o-arc { animation: pulse 1.4s ease-in-out infinite !important; }
+  .spin, .o-arc, #app[data-state="busy"] .bar .o-arc, .working .o-arc, .login-card .orb .o-arc { animation: pulse 1.4s ease-in-out infinite !important; }
   .o-core, .working .o-core, #app[data-state="busy"] .bar .o-core { animation: none !important; }
   button, .knob, .track, #toast, #jump, #banner { transition-duration: .01s, .15s !important; }
   .knob { transition: background-color .2s, transform .01s !important; }

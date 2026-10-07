@@ -2,6 +2,21 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "acl": {
+      ".read": false,
+      ".write": false
+    },
+    "u": {
+      "main": {
+        ".read": "auth != null && root.child('acl').child(auth.uid).val() === true",
+        ".write": "auth != null && root.child('acl').child(auth.uid).val() === true",
+        "inbox": {
+          "$m": {
+            ".validate": "newData.hasChildren(['type', 'ts']) && (!newData.hasChild('text') || (newData.child('text').isString() && newData.child('text').val().length < 4000))"
+          }
+        }
+      }
+    },
     "c": {
       "$sid": {
         ".read": "$sid.length >= 40",

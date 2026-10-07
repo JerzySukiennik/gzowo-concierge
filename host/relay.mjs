@@ -6,28 +6,37 @@ import { callTool } from './agent.mjs';
 import { store } from './db.mjs';
 import { mintLiveToken } from './live.mjs';
 import { live } from './live-state.mjs';
+import { createAuth } from './fbauth.mjs';
 
 const SV = { '.sv': 'timestamp' };
 const TTL_MS = 10 * 60 * 1000;
 const FEED_KEEP = 300;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const authMode = () => !!(config.relay.hostEmail && config.relay.hostPassword);
+
 export function pairingUrl() {
-  return `${config.relay.hostingUrl}/#s=${config.relay.sid}`;
+  return authMode() ? config.relay.hostingUrl : `${config.relay.hostingUrl}/#s=${config.relay.sid}`;
 }
 
 export function startRelay() {
   if (!config.relay.enabled || !config.relay.dbUrl || !config.relay.sid) return;
-  const base = `${config.relay.dbUrl}/c/${config.relay.sid}`;
-  const url = (p, q = '') => `${base}/${p}.json${q}`;
+  const auth = authMode() ? createAuth({ apiKey: config.relay.apiKey, email: config.relay.hostEmail, password: config.relay.hostPassword }) : null;
+  const base = auth ? `${config.relay.dbUrl}/u/main` : `${config.relay.dbUrl}/c/${config.relay.sid}`;
+  const url = async (p, q = '') => {
+    if (!auth) return `${base}/${p}.json${q}`;
+    const tok = await auth.token();
+    return `${base}/${p}.json${q}${q ? '&' : '?'}auth=${tok}`;
+  };
   const seen = new Set();
   const log = (...a) => console.log('[relay]', ...a);
 
   async function call(method, p, body, q) {
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        const res = await fetch(url(p, q), { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
+        const res = await fetch(await url(p, q), { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
         if (res.ok) return res.json();
+        if (res.status === 401 || res.status === 403) auth?.invalidate();
         if (res.status < 500 && res.status !== 429) { log(method, p, 'HTTP', res.status, (await res.text()).slice(0, 120)); return null; }
       } catch (err) { if (attempt === 3) log(method, p, 'failed:', String(err.message || err).slice(0, 100)); }
       await sleep(1000 * 2 ** attempt);
@@ -145,8 +154,8 @@ export function startRelay() {
       let last = Date.now();
       const dog = setInterval(() => { if (Date.now() - last > 90000) ctrl.abort(); }, 15000);
       try {
-        const res = await fetch(url('inbox'), { headers: { accept: 'text/event-stream' }, signal: ctrl.signal });
-        if (!res.ok) throw new Error(`stream HTTP ${res.status}`);
+        const res = await fetch(await url('inbox'), { headers: { accept: 'text/event-stream' }, signal: ctrl.signal });
+        if (!res.ok) { if (res.status === 401 || res.status === 403) auth?.invalidate(); throw new Error(`stream HTTP ${res.status}`); }
         log('connected');
         backoff = 1000;
         pushState();
@@ -188,5 +197,5 @@ export function startRelay() {
   trimFeed();
   call('DELETE', 'live');
   listen();
-  log('started, pair link:', pairingUrl().replace(config.relay.sid, '<sid>'));
+  log('started,', auth ? 'signed-in mode (u/main)' : 'legacy key mode', '| open:', pairingUrl().replace(config.relay.sid, '<sid>'));
 }
