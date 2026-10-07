@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     @Published var query = ""
     @Published var shellReady = false
     @Published var hasThreads = false
+    @Published var immersive = false
     weak var web: WebHost?
     var requestRename: ((ThreadInfo) -> Void)?
     var requestPoll: (() -> Void)?

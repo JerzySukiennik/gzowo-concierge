@@ -39,19 +39,35 @@ struct RootView: View {
     let web: WebHost
 
     var body: some View {
+        let on = model.immersive
         ZStack {
             Backdrop()
-            HStack(spacing: Config.inset) {
-                SidebarView(model: model)
-                    .frame(width: Config.sidebarWidth)
-                    .glassPanel(radius: 28, strength: .regularMaterial)
+            HStack(spacing: on ? 0 : Config.inset) {
+                if !on {
+                    SidebarView(model: model)
+                        .frame(width: Config.sidebarWidth)
+                        .glassPanel(radius: 28, strength: .regularMaterial)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
                 ZStack {
                     WebViewHost(web: web)
-                        .glassPanel(radius: 28, strength: .thinMaterial)
+                        .modifier(CardChrome(immersive: on))
                     OfflineOverlay(model: offline)
                 }
             }
-            .padding(Config.inset)
+            .padding(on ? 0 : Config.inset)
+        }
+        .animation(.easeInOut(duration: 0.26), value: on)
+    }
+}
+
+struct CardChrome: ViewModifier {
+    var immersive: Bool
+    func body(content: Content) -> some View {
+        if immersive {
+            content.background(Color(nsColor: .windowBackgroundColor))
+        } else {
+            content.glassPanel(radius: 28, strength: .thinMaterial)
         }
     }
 }

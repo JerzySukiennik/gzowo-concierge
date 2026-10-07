@@ -24,7 +24,7 @@ mask = mask.resize((S, S), Image.LANCZOS)
 
 grad = Image.new('RGBA', (S, S))
 gp = ImageDraw.Draw(grad)
-top, bot = (252, 252, 255), (205, 216, 236)
+top, bot = (250, 250, 251), (214, 217, 222)
 for y in range(S):
     t = y / S
     gp.line([(0, y), (S, y)], fill=(int(top[0] + (bot[0] - top[0]) * t), int(top[1] + (bot[1] - top[1]) * t), int(top[2] + (bot[2] - top[2]) * t), 255))
@@ -53,9 +53,9 @@ for y in range(cy - R - 2, cy + R + 3):
             nz = math.sqrt(max(0.0, 1 - nx * nx - ny * ny))
             light = max(0.0, (-nx * 0.35 + -ny * 0.62 + nz * 0.7))
             rim = (1 - nz) ** 2.2
-            r = 40 + 70 * light + 40 * rim
-            g = 62 + 95 * light + 55 * rim
-            b = 110 + 120 * light + 70 * rim
+            r = 52 + 110 * light + 40 * rim
+            g = 55 + 112 * light + 42 * rim
+            b = 60 + 118 * light + 46 * rim
             op[x, y] = (int(min(r, 255)), int(min(g, 255)), int(min(b, 255)), 255)
 edge = Image.new('L', (S, S), 0)
 ImageDraw.Draw(edge).ellipse([cx - R, cy - R, cx + R, cy + R], fill=255)
@@ -67,7 +67,7 @@ gl = Image.new('L', (S, S), 0)
 ImageDraw.Draw(gl).ellipse([cx - R, cy - R + int(S * 0.02), cx + R, cy + R + int(S * 0.02)], fill=255)
 gl = gl.filter(ImageFilter.GaussianBlur(S * 0.03))
 glow.putalpha(gl.point(lambda v: int(v * 0.35)))
-glow_fill = Image.new('RGBA', (S, S), (60, 90, 160, 255))
+glow_fill = Image.new('RGBA', (S, S), (70, 74, 84, 255))
 glow = Image.composite(glow_fill, Image.new('RGBA', (S, S), (0, 0, 0, 0)), glow.getchannel('A'))
 base = Image.alpha_composite(base, glow)
 base = Image.alpha_composite(base, orb)

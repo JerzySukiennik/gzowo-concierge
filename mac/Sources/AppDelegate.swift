@@ -13,6 +13,13 @@ import AppKit
         windowController = MainWindowController(model: model)
         status = StatusController(delegate: self)
         windowController.web.onMessage = { [weak self] body in
+            if body["type"] as? String == "live-view", let open = body["open"] as? Bool {
+                Task { @MainActor in
+                    self?.model.immersive = open
+                    self?.windowController.web.view.evaluateJavaScript("document.documentElement.dataset.immersive = '\(open ? "1" : "")'; document.documentElement.style.setProperty('--lights', '\(open ? "78px" : "0px")')", completionHandler: nil)
+                }
+                return
+            }
             guard body["type"] as? String == "state" else { return }
             if let live = body["live"] as? String { self?.monitor.setLive(live) }
             if let thread = body["thread"] as? String, !thread.isEmpty { Task { @MainActor in self?.model.adoptFromWeb(thread) } }

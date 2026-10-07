@@ -7,7 +7,7 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Color.clear.frame(height: 38)
+            Color.clear.frame(height: 34)
 
             VStack(spacing: 2) {
                 navRow("square.and.pencil", "Nowa rozmowa", key: "⌘N", enabled: model.hasThreads, why: "Wymaga zaktualizowanego hosta") { model.newThread() }
