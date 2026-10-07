@@ -7,3 +7,6 @@ bin/
 .firebase/
 Niepotrzebne/
 mac/build/
+.claude/.autodeploy-builds
+.claude/.last-deploy
+.claude/settings.local.json

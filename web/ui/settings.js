@@ -2,6 +2,8 @@
 import { icon } from './icons.js';
 import { createConnectors } from './connectors.js';
 import { EASE, SPRING, reduceMq } from './glass.js';
+import { avatarPage } from './studio.js';
+import { paintOrbs } from './avatar.js';
 
 const LABELS = {
   'calendar.read': 'Kalendarz: czytanie',
@@ -425,7 +427,11 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     hero.querySelector('.n-tile').replaceWith(heroIcons);
     hero.querySelector('.n-t').append(heroSub);
     hero.onclick = () => push('Konektory', page => conn.gallery(page, push));
-    const hs = el('section', 'grp'); hs.append(hero); rootEl.append(hs);
+    const av = el('button', 'navrow feat', `<span class="n-tile"><canvas class="orb-c" data-face="attentive"></canvas></span><span class="n-t"><span class="n-main">Awatar</span><span class="n-sub">Kształt i kolor Concierge</span></span><span class="n-ch">${icon('chevR', 18)}</span>`);
+    av.type = 'button';
+    av.onclick = () => push('Awatar', avatarPage);
+    const hs = el('section', 'grp'); hs.append(hero, av); rootEl.append(hs);
+    paintOrbs(av);
     refreshHero();
 
     const sp = section('Pytaj o zgodę', 'shield');
@@ -458,6 +464,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     while (stack.length) pop();
     const t = getTransport();
     if (name === 'connectors') push('Konektory', page => conn.gallery(page, push), instant);
+    else if (name === 'avatar') push('Awatar', avatarPage, instant);
     else if (name === 'skills') push('Umiejętności', skillsPage, instant);
     else if (name === 'memory') push('Pamięć', memoryPage, instant);
     else if (name === 'cards' && t.listCards) push('Karty', cardsPage, instant);

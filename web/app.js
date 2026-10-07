@@ -10,7 +10,8 @@ import { buildAsk } from './ui/ask.js';
 import { initFx, initSheen, createGoo, gooOn } from './ui/glass.js';
 import { probe, poke } from './ui/ticker.js';
 import { createFace, followPointer } from './face.js';
-import { report, isShell } from './shell.js';
+import { report, isShell, post as shellPost } from './shell.js';
+import { getAvatar, setAvatar, setRemote, paintOrbs, updateIcons } from './ui/avatar.js';
 
 const $ = id => document.getElementById(id);
 const app = $('app'), log = $('log'), input = $('input'), sendBtn = $('send'), pendingBox = $('pending'), banner = $('banner'), jump = $('jump'), dock = $('dock'), sheetEl = $('sheet'), sideEl = $('side'), todayEl = $('today'), stage = $('stage');
@@ -26,9 +27,12 @@ let transport = null, lastUserText = '', settling = true, settleTimer = 0, liveS
 const queue = [];
 const whenReady = fn => { if (booted) return fn(); queue.push(fn); };
 const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+const endLive = () => { if (liveScreen && liveScreen.isOpen) liveScreen.hide(); };
 const tid = () => (transport && transport.threadId) || 'main';
 
 paintIcons();
+paintOrbs();
+updateIcons();
 initFx();
 initSheen();
 probe();
@@ -76,6 +80,7 @@ const shifts = [$('thread'), $('dockInner')];
 const sheet = createSheet({
   el: sheetEl, body: $('sheetBody'), scrim: $('scrim'), shifts, edge: rightEdge, shiftPx: () => shiftFor(sheetEl),
   onOpen() {
+    endLive();
     if (todaySheet.isOpen) todaySheet.hide();
     if (sideSheet.isOpen) sideSheet.hide();
     planTight(sheetEl);
@@ -96,6 +101,7 @@ const sheet = createSheet({
 const todaySheet = createSheet({
   el: todayEl, body: $('todayBody'), scrim: $('scrimToday'), shifts, edge: rightEdge, shiftPx: () => shiftFor(todayEl),
   onOpen() {
+    endLive();
     if (sheet.isOpen) sheet.hide();
     if (sideSheet.isOpen) sideSheet.hide();
     planTight(todayEl);
@@ -122,7 +128,7 @@ const todaySheet = createSheet({
 
 const sideSheet = createSheet({
   el: sideEl, body: $('threadList'), scrim: $('scrimSide'), edge: () => (wideMq.matches ? null : 'left'),
-  onOpen() { if (sheet.isOpen) sheet.hide(); if (todaySheet.isOpen) todaySheet.hide(); $('menu').setAttribute('aria-expanded', 'true'); syncInert(); requestAnimationFrame(() => sideEl.querySelector('.s-act')?.focus({ preventScroll: true })); },
+  onOpen() { endLive(); if (sheet.isOpen) sheet.hide(); if (todaySheet.isOpen) todaySheet.hide(); $('menu').setAttribute('aria-expanded', 'true'); syncInert(); requestAnimationFrame(() => sideEl.querySelector('.s-act')?.focus({ preventScroll: true })); },
   onClose() { $('menu').setAttribute('aria-expanded', 'false'); syncInert(); },
 });
 
@@ -132,9 +138,9 @@ $('todayClose').onclick = () => todaySheet.hide();
 $('sideClose').onclick = () => sideSheet.hide();
 $('menu').onclick = () => sideSheet.show();
 $('todayBtn').onclick = () => (todaySheet.isOpen ? todaySheet.hide() : todaySheet.show());
-$('liveBtn').onclick = () => openLive();
 
 function openView(name) {
+  endLive();
   if (name === 'today') { todaySheet.show(); return; }
   sideSheet.hide();
   const was = sheet.isOpen;
@@ -201,6 +207,7 @@ $('tbRename').onblur = () => endRename(true);
 
 async function switchThread(id, force) {
   if (!transport) return;
+  endLive();
   if (id === tid() && !force) { if (sideSheet.isOpen) sideSheet.hide(); return; }
   endRename(false);
   thread.clear();
@@ -216,6 +223,7 @@ async function switchThread(id, force) {
 
 async function newThread() {
   if (!transport || !transport.newThread) return;
+  endLive();
   const id = await transport.newThread();
   await switchThread(id, true);
   input.focus({ preventScroll: true });
@@ -316,6 +324,7 @@ function mergeState(p) {
   renderBusy(); renderPending(); renderBanner();
   if (p.pending) liveScreen?.syncPending(state.pending);
   if (p.threads) { threadsUI.set(state.threads); updateTitle(); }
+  if (p.avatar) setAvatar(p.avatar, { persist: false });
   if (p.today !== undefined && p.today !== null && todaySheet.isOpen) { lastToday = p.today; todayUI.render(p.today); }
   if (sheet.isOpen) settings.sync();
   if (p.connectors && sheet.isOpen) settings.loadConnectors();
@@ -339,6 +348,7 @@ function openLive() {
   if (todaySheet.isOpen) todaySheet.hide();
   if (sideSheet.isOpen) sideSheet.hide();
   root.dataset.live = '1';
+  shellPost({ type: 'live-view', open: true });
   liveScreen.show();
   liveScreen.syncPending(state.pending);
   syncInert();
@@ -348,6 +358,7 @@ function openLive() {
 
 function closedLive() {
   clearInterval(liveTimer);
+  shellPost({ type: 'live-view', open: false });
   delete root.dataset.live;
   syncInert();
   fit();
@@ -372,7 +383,6 @@ function fit() {
   if (sendBtn.dataset.mode !== mode) { sendBtn.dataset.mode = mode; sendBtn.setAttribute('aria-label', mode === 'live' ? 'Rozmowa na żywo' : 'Wyślij'); }
   sendBtn.disabled = mode === 'send' && !has;
   sendBtn.classList.toggle('ready', has);
-  $('liveBtn').hidden = !liveScreen;
 }
 input.oninput = fit;
 
@@ -423,7 +433,7 @@ document.addEventListener('keydown', e => {
     if (todaySheet.isOpen) { todaySheet.hide(); return; }
     if (sideSheet.isOpen) { sideSheet.hide(); return; }
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === ',' && !liveScreen?.isOpen) { e.preventDefault(); sheet.toggle(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); sheet.toggle(); return; }
   const t = e.target;
   if (hoverDevice.matches && !sheet.isOpen && !liveScreen?.isOpen && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !/^(INPUT|TEXTAREA|BUTTON|SELECT|A)$/.test(t.tagName) && !$('login').classList.contains('on')) input.focus({ preventScroll: true });
 });
@@ -445,7 +455,6 @@ async function setupLive(demo) {
     onFinal: (role, text) => { if (direct) return; if (role === 'user') { lastUserText = text; thread.addUser(text, null, false); } else thread.addAssistant(text); },
     onClose: closedLive,
     onShell: () => reportShell(),
-    onKeyboard: () => requestAnimationFrame(() => input.focus({ preventScroll: true })),
   });
   fit();
 }
@@ -494,6 +503,8 @@ async function boot() {
     const { createHttp } = await import('./transport-http.js');
     transport = createHttp(on);
   }
+  setRemote(a => { if (transport.setAvatar) transport.setAvatar(a); });
+  if (transport.getAvatar) transport.getAvatar().then(a => { if (a) setAvatar(a, { persist: false }); }).catch(() => {});
   const acct = transport.account && transport.account.email;
   $('sideAcct').textContent = acct || (transport.mode === 'local' ? 'Na tym Macu' : '');
   await transport.start();

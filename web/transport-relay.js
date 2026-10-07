@@ -33,7 +33,7 @@ export async function createRelay(on) {
     const meta = v.connectorMeta || {}, st = v.connectors || {};
     connList = Object.keys({ ...meta, ...st }).map(id => ({ id, name: (meta[id] || {}).name || id, icon: (meta[id] || {}).icon || id, category: (meta[id] || {}).category || 'Inne', state: st[id] || 'available', capabilities: [], tools: [] }));
     try { today = v.todayJson ? JSON.parse(v.todayJson) : null; } catch { today = null; }
-    on.state({ busy: !!v.busy, policies, facts: v.facts || {}, pending: v.pending || {}, online: link && hostOnline(), link, threads: { ...threads }, labels, connectors: st, today });
+    on.state({ avatar: v.avatar || undefined, busy: !!v.busy, policies, facts: v.facts || {}, pending: v.pending || {}, online: link && hostOnline(), link, threads: { ...threads }, labels, connectors: st, today });
   });
   setInterval(pushOnline, 5000);
   subscribeFeed();
@@ -99,6 +99,7 @@ export async function createRelay(on) {
     async deleteThread(id) { send({ type: 'thread-delete', thread: id }); const n = { ...threads }; delete n[id]; threads = n; pushThreads(); },
     async restoreThread(id) { send({ type: 'thread-restore', thread: id }); },
     async getToday() { return today; },
+    setAvatar(a) { send({ type: 'avatar', shape: a.shape, color: a.color }); },
     async listConnectors() { return { connectors: connList, labels }; },
   };
 }

@@ -3,6 +3,7 @@ import { icon, toolIcon, orbSvg } from './icons.js';
 import { renderMarkdown } from './markdown.js';
 import { createGoo, gooOn } from './glass.js';
 import { createFace, followPointer } from '../face.js';
+import { paintOrbs } from './avatar.js';
 
 const STATUS_TEXT = { running: 'w toku', done: 'gotowe', failed: 'nie udało się' };
 
@@ -145,10 +146,11 @@ export function createThread({ log, root, onStick }) {
     const show = busy && runningCount() === 0;
     if (show && !working) {
       dropEmpty();
-      working = el('div', 'working', orbSvg('mini') + '<span>Pracuję</span>');
+      working = el('div', 'working', orbSvg('mini', 'attentive') + '<span>Pracuję</span>');
       working.setAttribute('role', 'status');
       if (animate) working.classList.add('enter');
       root.append(working);
+      paintOrbs(working);
       lastGroup = null;
       if (stick) toEnd(true);
     } else if (!show && working) { working.remove(); working = null; }

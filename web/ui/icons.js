@@ -1,7 +1,10 @@
-// Gzowo Concierge - icon set in the SF Symbols idiom: 24 grid, 1.75 stroke, round caps, outline plus filled variants, original connector pictograms, glass orb markup.
+// Gzowo Concierge - icon set in the SF Symbols idiom: 24 grid, 1.75 stroke, round caps, outline plus filled variants, original connector pictograms, bot mini-logo markup.
+const MIC = '<rect x="9.25" y="2.75" width="5.5" height="11" rx="2.75"/><path d="M6 11v.5a6 6 0 0 0 12 0V11M12 17.5v3M8.75 20.75h6.5"/>';
+let uid = 0;
+
 const P = {
   send: { o: '<path d="M12 19.25V5.25M5.75 11.25 12 5l6.25 6.25"/>' },
-  wave: { o: '<path d="M5 10v4M8.5 7v10M12 4.5v15M15.5 8v8M19 10.5v3"/>', f: '<path d="M5 10v4M8.5 7v10M12 4.5v15M15.5 8v8M19 10.5v3"/>', fw: 2.6 },
+  wave: { o: '<path d="M4.5 9.75v4.5M8.25 6.5v11M12 3.5v17M15.75 7.5v9M19.5 10v4"/>', weight: 2.2, f: '<path d="M4.5 9.75v4.5M8.25 6.5v11M12 3.5v17M15.75 7.5v9M19.5 10v4"/>', fw: 2.7 },
   sliders: { o: '<path d="M4 7h8.5M17.5 7H20M4 17h2.5M11.5 17H20"/><circle cx="15" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/>', f: '<path d="M4 7h8.5M17.5 7H20M4 17h2.5M11.5 17H20"/><circle cx="15" cy="7" r="2.75"/><circle cx="9" cy="17" r="2.75"/>' },
   close: { o: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>' },
   calendar: { o: '<rect x="4" y="5.5" width="16" height="14.5" rx="4"/><path d="M4 10.5h16M8.5 3.5v3M15.5 3.5v3"/>', f: '<path d="M4 9.1V9a3.5 3.5 0 0 1 3.5-3.5h9A3.5 3.5 0 0 1 20 9v.1z"/><path d="M4 11.4h16v5.1A3.5 3.5 0 0 1 16.5 20h-9A3.5 3.5 0 0 1 4 16.5z"/><rect x="7.75" y="3" width="1.5" height="4" rx=".75"/><rect x="14.75" y="3" width="1.5" height="4" rx=".75"/>', fw: 0 },
@@ -17,8 +20,8 @@ const P = {
   phone: { o: '<rect x="7" y="3" width="10" height="18" rx="3"/><path d="M10.8 17.6h2.4"/>', f: '<rect x="7" y="3" width="10" height="18" rx="3"/>' },
   alert: { o: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.75v5"/><circle cx="12" cy="16.2" r=".55" fill="currentColor"/>', f: '<path fill-rule="evenodd" d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zm0 4.1a.95.95 0 0 1 .95.95v4a.95.95 0 0 1-1.9 0v-4A.95.95 0 0 1 12 7.6zm0 7.95a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2z"/>', fw: 0 },
   retry: { o: '<path d="M19.5 11A7.5 7.5 0 1 0 17.3 16.4"/><path d="M19.8 5v6h-6"/>' },
-  mic: { o: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/>', f: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/>' },
-  micOff: { o: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5M4.5 4.5l15 15"/>', f: '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/><path class="cut" d="M4.5 4.5l15 15"/><path d="M4.5 4.5l15 15"/>' },
+  mic: { o: MIC, f: '<rect x="9.25" y="2.75" width="5.5" height="11" rx="2.75"/><path fill="none" d="M6 11v.5a6 6 0 0 0 12 0V11M12 17.5v3M8.75 20.75h6.5"/>' },
+  micOff: { slash: 'M4.5 4 19.5 20', o: MIC, f: '<rect x="9.25" y="2.75" width="5.5" height="11" rx="2.75"/><path fill="none" d="M6 11v.5a6 6 0 0 0 12 0V11M12 17.5v3M8.75 20.75h6.5"/>' },
   stop: { o: '<rect x="7" y="7" width="10" height="10" rx="2.8"/>', solid: true },
   plus: { o: '<path d="M12 5.5v13M5.5 12h13"/>' },
   paste: { o: '<rect x="6" y="5.5" width="12" height="15" rx="3"/><path d="M9.5 5.5V5A1.5 1.5 0 0 1 11 3.5h2A1.5 1.5 0 0 1 14.5 5v.5M9.5 11.5h5M9.5 15h3"/>' },
@@ -69,7 +72,12 @@ export function icon(name, size = 20, filled = false, weight) {
   const f = (filled && d.f) || null;
   const sw = weight || (f && d.fw !== undefined ? d.fw : d.solid ? 0 : d.weight || 1.75);
   const fill = f || d.solid ? 'currentColor' : 'none';
-  return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${f || d.o}</svg>`;
+  let body = f || d.o;
+  if (d.slash) {
+    const id = 'im' + (++uid);
+    body = `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="#fff"/><path d="${d.slash}" fill="none" stroke="#000" stroke-width="4.6" stroke-linecap="round"/></mask><g mask="url(#${id})">${body}</g><path fill="none" d="${d.slash}"/>`;
+  }
+  return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 }
 
 export function paintIcons(root = document) {
@@ -104,4 +112,4 @@ export function skyIcon(sky = '') {
   return 'cloudSun';
 }
 
-export const orbSvg = (cls = '') => `<span class="orb ${cls}" aria-hidden="true"><i class="ob-arc"></i><i class="ob-body"></i></span>`;
+export const orbSvg = (cls = '', face = 'neutral') => `<span class="orb ${cls}" aria-hidden="true"><i class="ob-arc"></i><canvas class="orb-c" data-face="${face}"></canvas></span>`;

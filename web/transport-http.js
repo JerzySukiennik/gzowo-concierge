@@ -85,6 +85,8 @@ export function createHttp(on) {
     async deleteThread(id) { await del('/api/threads/' + encodeURIComponent(id)); loadThreads(busyStreams > 0); },
     async restoreThread(id) { await post('/api/threads/' + encodeURIComponent(id) + '/restore'); loadThreads(busyStreams > 0); },
     async getToday() { return get('/api/today'); },
+    async getAvatar() { return get('/api/avatar'); },
+    async setAvatar(a) { await post('/api/avatar', a); },
     async listConnectors() { const r = await get('/api/connectors'); if (r.labels) on.state({ labels: r.labels }); return r; },
     async connectConnector(id) { return json(await post('/api/connectors/' + encodeURIComponent(id) + '/connect')); },
     async setConnectorToken(id, tokenValue) { return json(await post('/api/connectors/' + encodeURIComponent(id) + '/token', { token: tokenValue })); },

@@ -32,6 +32,7 @@ const CONNECTORS = [
 ];
 
 let current = null;
+let avatarStore = null;
 
 function iso(base, plusMin) { return new Date(base.getTime() + plusMin * 60000).toISOString(); }
 
@@ -182,6 +183,8 @@ export function createDemo(on, { scene = 'chat', mode = 'local' } = {}) {
     async deleteThread(id) { delete threads[id]; pushThreads(); },
     async restoreThread(id) { threads[id] = threads[id] || { title: 'Przywrócona rozmowa', updated: Date.now(), busy: false }; pushThreads(); },
     async getToday() { return todayData(scene); },
+    async getAvatar() { return avatarStore; },
+    async setAvatar(a) { avatarStore = { ...a }; },
     async listConnectors() { return { connectors: mode === 'relay' ? conns.map(stripped) : conns.map(view), labels: { ...LABELS } }; },
     async getPersona() { return { persona: persona.text, isDefault: persona.isDefault }; },
     async setPersona(text) { persona.text = text.trim() ? text : DEFAULT_PERSONA; persona.isDefault = !text.trim(); return { persona: persona.text, isDefault: persona.isDefault }; },

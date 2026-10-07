@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eceef1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121316" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -33,11 +33,10 @@
       </div>
       <div class="tb-acts">
         <button class="tb-btn glass" id="todayBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Dzisiaj"><span data-ic="sun" data-size="19"></span><span class="tb-lbl">Dzisiaj</span></button>
-        <button class="icon-btn glass" id="liveBtn" type="button" aria-label="Rozmowa na żywo" hidden><span data-ic="wave" data-size="21"></span></button>
       </div>
     </header>
 
-    <div id="banner" role="status" class="glass"><span class="orb mini" aria-hidden="true"><i class="ob-arc"></i><i class="ob-body"></i></span><span class="b-t"></span></div>
+    <div id="banner" role="status" class="glass"><span class="orb mini" aria-hidden="true"><i class="ob-arc"></i><canvas class="orb-c" data-face="sleepy"></canvas></span><span class="b-t"></span></div>
 
     <main id="log" role="log" aria-label="Rozmowa" tabindex="-1"><div id="thread"></div></main>
     <div class="edge edge-top" aria-hidden="true"></div>
@@ -72,7 +71,7 @@
 <div id="scrimSide" class="scrim"></div>
 <aside id="side" aria-label="Rozmowy">
   <div class="side-top">
-    <div class="side-brand"><span class="orb" aria-hidden="true"><i class="ob-arc"></i><i class="ob-body"></i></span><span class="b-name">Concierge</span></div>
+    <div class="side-brand"><span class="orb" aria-hidden="true"><i class="ob-arc"></i><canvas class="orb-c"></canvas></span><span class="b-name">Concierge</span></div>
     <button class="icon-btn" id="sideClose" type="button" aria-label="Zamknij panel"><span data-ic="close" data-size="20"></span></button>
   </div>
   <nav class="side-actions" aria-label="Skróty">
@@ -113,19 +112,15 @@
   <div class="live-glow" id="liveGlow" aria-hidden="true"><i class="gl gl-base"></i><i class="gl gl-core"></i><i class="gl gl-a"></i><i class="gl gl-b"></i></div>
   <div class="live-scrim"></div>
   <div class="live-panel">
-    <div class="live-bar">
-      <h2 id="liveTitle">Rozmowa na żywo</h2>
-      <button class="icon-btn glass" id="liveCloseTop" type="button" aria-label="Zamknij"></button>
-    </div>
+    <h2 id="liveTitle" class="sr">Rozmowa na żywo</h2>
+    <div class="live-float" id="liveSteps" aria-live="polite"></div>
     <div class="live-face"><canvas id="faceCanvas" aria-hidden="true"></canvas></div>
-    <div class="live-status"><p id="liveStatus" role="status"></p><p id="liveHint"></p></div>
-    <div class="live-tx" aria-live="polite"><p id="txUser"></p><p id="txBot"></p></div>
-    <div class="live-cards"><p class="cards-empty">Tu zobaczysz, co robię, i prośby o zgodę.</p><div id="liveSteps"></div><div id="livePending" aria-live="assertive"></div></div>
-    <div class="live-ctrl glass">
-      <button class="ctl" id="liveKeys" type="button" aria-label="Wróć do klawiatury"><span class="ball"><span class="glyph"></span></span><span class="lbl">Klawiatura</span></button>
-      <button class="ctl" id="liveMute" type="button" aria-pressed="false" aria-label="Wycisz mikrofon"><span class="ball"><span class="glyph"></span></span><span class="lbl">Wycisz</span></button>
-      <button class="ctl mic" id="liveMic" type="button" aria-label="Zacznij rozmowę"><span class="ball"><span class="ring"></span><span class="glyph"></span></span><span class="lbl">Zacznij</span></button>
-      <button class="ctl" id="liveClose" type="button" aria-label="Zamknij rozmowę na żywo"><span class="ball"><span class="glyph"></span></span><span class="lbl">Zamknij</span></button>
+    <p id="liveStatus" role="status"></p>
+    <p id="liveLine" aria-live="polite"></p>
+    <div class="live-asks" id="livePending" aria-live="assertive"></div>
+    <div class="live-ctrl">
+      <button class="ctl glass" id="liveMute" type="button" aria-pressed="false" aria-label="Wycisz mikrofon"><span class="glyph"></span></button>
+      <button class="ctl glass end" id="liveClose" type="button" aria-label="Zakończ rozmowę"><span class="glyph"></span></button>
     </div>
   </div>
 </section>
