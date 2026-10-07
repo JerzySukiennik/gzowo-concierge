@@ -103,7 +103,9 @@ export function handleLiveUpgrade(req, socket) {
       setState('thinking');
       const responses = [];
       for (const call of m.toolCall.functionCalls || []) {
-        const response = await callTool(THREAD, { name: call.name, args: call.args }, emit);
+        const crid = call.id || rid();
+        const emitCall = e => { const ev = { ...e, rid: crid }; tell(ev); bus.emit('event', ev); };
+        const response = await callTool(THREAD, { name: call.name, args: call.args }, emitCall);
         responses.push({ id: call.id, name: call.name, response });
       }
       bus.emit('state'); tell({ type: 'pending', pending: Object.fromEntries(snapshot().pending.map(p => [p.id, p.summary])) });

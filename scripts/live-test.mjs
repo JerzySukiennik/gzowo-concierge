@@ -12,7 +12,7 @@ ws.onmessage = ev => {
   const m = JSON.parse(ev.data);
   if (m.type === 'ready') { log('ready'); ws.send(JSON.stringify({ type: 'text', text })); log('sent:', text); }
   else if (m.type === 'transcript') { if (m.final || m.role === 'user') log('transcript', m.role, m.final ? '(final)' : '', m.text); }
-  else if (m.type === 'tool') log('tool', m.status, m.summary);
+  else if (m.type === 'tool') log('tool', m.status, m.summary, 'rid=' + String(m.rid).slice(0, 8));
   else log(m.type, m.state || m.message || '');
 };
 ws.onerror = e => log('socket error', e.message || '');
