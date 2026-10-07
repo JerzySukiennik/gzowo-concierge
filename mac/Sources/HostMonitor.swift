@@ -14,6 +14,7 @@ struct HostState: Equatable {
     var pending = 0
     var live = "idle"
     var threads: [ThreadInfo] = []
+    var hasThreads = false
 }
 
 final class HostMonitor {
@@ -49,6 +50,7 @@ final class HostMonitor {
                 next.online = true
                 next.busy = json["busy"] as? Bool ?? false
                 next.pending = (json["pending"] as? [Any])?.count ?? 0
+                next.hasThreads = json["threads"] != nil
                 next.threads = (json["threads"] as? [[String: Any]] ?? []).compactMap { t in
                     guard let id = t["id"] as? String else { return nil }
                     return ThreadInfo(id: id, title: t["title"] as? String ?? "Rozmowa", updated: (t["updated"] as? Double) ?? 0, busy: t["busy"] as? Bool ?? false)

@@ -10,13 +10,16 @@ final class AppModel: ObservableObject {
     @Published var pending = 0
     @Published var busy = false
     @Published var query = ""
+    @Published var shellReady = false
+    @Published var hasThreads = false
     weak var web: WebHost?
     var requestRename: ((ThreadInfo) -> Void)?
     var requestPoll: (() -> Void)?
 
     func apply(_ s: HostState) {
         online = s.online; pending = s.pending; busy = s.busy
-        if s.online { threads = s.threads }
+        if s.online && hasThreads != s.hasThreads { hasThreads = s.hasThreads }
+        if s.online && threads != s.threads { threads = s.threads }
     }
 
     func adoptFromWeb(_ id: String) {
@@ -54,6 +57,16 @@ final class AppModel: ObservableObject {
     }
 
     func openView(_ name: String) { web?.call("openView('\(name)')") }
+
+    func probeShell() {
+        for delay in [1.0, 2.5, 5.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.web?.view.evaluateJavaScript("typeof window.conciergeShell === 'object' && typeof window.conciergeShell.openView === 'function'") { result, _ in
+                    if let ok = result as? Bool, ok { Task { @MainActor in self?.shellReady = true } }
+                }
+            }
+        }
+    }
 
     var filtered: [ThreadInfo] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()

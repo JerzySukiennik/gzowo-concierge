@@ -10,11 +10,11 @@ struct SidebarView: View {
             Color.clear.frame(height: 38)
 
             VStack(spacing: 2) {
-                navRow("square.and.pencil", "Nowa rozmowa", key: "⌘N") { model.newThread() }
-                navRow("puzzlepiece.extension", "Konektory") { model.openView("connectors") }
-                navRow("wand.and.stars", "Umiejętności") { model.openView("skills") }
-                navRow("brain", "Pamięć") { model.openView("memory") }
-                navRow("sun.max", "Dzisiaj") { model.openView("today") }
+                navRow("square.and.pencil", "Nowa rozmowa", key: "⌘N", enabled: model.hasThreads, why: "Wymaga zaktualizowanego hosta") { model.newThread() }
+                navRow("puzzlepiece.extension", "Konektory", enabled: model.shellReady, why: "Wymaga nowej wersji interfejsu") { model.openView("connectors") }
+                navRow("wand.and.stars", "Umiejętności", enabled: model.shellReady, why: "Wymaga nowej wersji interfejsu") { model.openView("skills") }
+                navRow("brain", "Pamięć", enabled: model.shellReady, why: "Wymaga nowej wersji interfejsu") { model.openView("memory") }
+                navRow("sun.max", "Dzisiaj", enabled: model.shellReady, why: "Wymaga nowej wersji interfejsu") { model.openView("today") }
             }
             .padding(.horizontal, 10)
 
@@ -22,6 +22,7 @@ struct SidebarView: View {
                 Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                 TextField("Szukaj rozmów", text: $model.query)
                     .textFieldStyle(.plain)
+                    .accessibilityLabel("Szukaj rozmów")
                     .font(.system(size: 13))
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -53,7 +54,7 @@ struct SidebarView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func navRow(_ symbol: String, _ title: String, key: String? = nil, action: @escaping () -> Void) -> some View {
+    private func navRow(_ symbol: String, _ title: String, key: String? = nil, enabled: Bool = true, why: String = "", action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: symbol).font(.system(size: 14, weight: .regular)).frame(width: 20)
@@ -66,6 +67,10 @@ struct SidebarView: View {
             .background(hovered == title ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .help(enabled ? "" : why)
+        .accessibilityLabel(title)
         .onHover { hovered = $0 ? title : (hovered == title ? nil : hovered) }
     }
 
@@ -87,6 +92,8 @@ struct SidebarView: View {
             .background(selected ? Color.primary.opacity(0.095) : (hovered == t.id ? Color.primary.opacity(0.05) : .clear), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(t.title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .onHover { hovered = $0 ? t.id : (hovered == t.id ? nil : hovered) }
         .contextMenu {
             Button("Zmień nazwę…") { model.requestRename?(t) }
@@ -109,7 +116,10 @@ struct SidebarView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Ustawienia")
+            .disabled(!model.shellReady)
+            .accessibilityLabel("Ustawienia")
+            .opacity(model.shellReady ? 1 : 0.4)
+            .help(model.shellReady ? "Ustawienia" : "Wymaga nowej wersji interfejsu")
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
     }
