@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { config } from '../config.mjs';
 import { when, range } from '../human.mjs';
 
-async function cal(command, opts = {}) {
+export async function cal(command, opts = {}) {
   const out = path.join(config.dataDir, `cal-${crypto.randomUUID()}.json`);
   const args = ['-n', config.calApp, '--args', command, '--out', out];
   for (const [k, v] of Object.entries(opts)) {

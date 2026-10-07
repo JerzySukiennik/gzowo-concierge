@@ -1,7 +1,7 @@
 // Gzowo Concierge - live voice: bridges a browser WebSocket (/live) to Gemini Live with the same tools and approvals as text chat.
 import { config } from './config.mjs';
 import { store } from './db.mjs';
-import { bus, THREAD, snapshot } from './commands.mjs';
+import { bus, validThread, snapshot } from './commands.mjs';
 import { callTool } from './agent.mjs';
 import { systemPrompt } from './prompt.mjs';
 import { declarations } from './tools/index.mjs';
@@ -46,6 +46,8 @@ export async function mintLiveToken() {
 }
 
 export function handleLiveUpgrade(req, socket) {
+  const thread = validThread(new URL(req.url, 'http://x').searchParams.get('thread'));
+  store.ensureThread(thread);
   const rid = () => crypto.randomUUID();
   let upstream = null, ready = false, closed = false;
   let turn = { user: '', assistant: '', rid: rid() };
@@ -67,7 +69,7 @@ export function handleLiveUpgrade(req, socket) {
 
   const tell = o => conn.open && conn.sendText(JSON.stringify(o));
   const setState = s => { if (s !== state) { state = s; tell({ type: 'state', state: s }); } };
-  const emit = e => { const ev = { ...e, rid: turn.rid }; tell(ev); bus.emit('event', ev); };
+  const emit = e => { const ev = { ...e, rid: turn.rid, thread }; tell(ev); bus.emit('event', ev); };
 
   function sendUp(o) { if (upstream?.readyState === 1 && ready) upstream.send(JSON.stringify(o)); }
   function sendAudio(buf) {
@@ -77,8 +79,8 @@ export function handleLiveUpgrade(req, socket) {
 
   function flushTurn() {
     const u = turn.user.trim(), a = turn.assistant.trim();
-    if (u) { store.addContent(THREAD, { role: 'user', parts: [{ text: u }] }); bus.emit('event', { type: 'user', text: u, rid: turn.rid, cid: turn.rid }); }
-    if (a) { store.addContent(THREAD, { role: 'model', parts: [{ text: a }] }); bus.emit('event', { type: 'text', text: a, rid: turn.rid }); }
+    if (u) { store.addContent(thread, { role: 'user', parts: [{ text: u }] }); bus.emit('event', { type: 'user', text: u, rid: turn.rid, cid: turn.rid, thread }); }
+    if (a) { store.addContent(thread, { role: 'model', parts: [{ text: a }] }); bus.emit('event', { type: 'text', text: a, rid: turn.rid, thread }); }
     turn = { user: '', assistant: '', rid: rid() };
   }
 
@@ -104,8 +106,8 @@ export function handleLiveUpgrade(req, socket) {
       const responses = [];
       for (const call of m.toolCall.functionCalls || []) {
         const crid = call.id || rid();
-        const emitCall = e => { const ev = { ...e, rid: crid }; tell(ev); bus.emit('event', ev); };
-        const response = await callTool(THREAD, { name: call.name, args: call.args }, emitCall);
+        const emitCall = e => { const ev = { ...e, rid: crid, thread }; tell(ev); bus.emit('event', ev); };
+        const response = await callTool(thread, { name: call.name, args: call.args }, emitCall);
         responses.push({ id: call.id, name: call.name, response });
       }
       bus.emit('state'); tell({ type: 'pending', pending: Object.fromEntries(snapshot().pending.map(p => [p.id, p.summary])) });

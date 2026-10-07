@@ -5,14 +5,18 @@ import { webTools } from './web.mjs';
 import { memoryTools } from './memory.mjs';
 import { skillTools } from './skills.mjs';
 import { paymentTools } from './payment.mjs';
+import { connectorTools, isActive } from '../connectors/index.mjs';
 
-export const tools = [...calendarTools, ...webTools, ...memoryTools, ...skillTools, ...paymentTools];
+calendarTools.forEach(t => { t.connector = 'calendar'; });
+webTools.forEach(t => { t.connector = 'web'; });
+
+export const tools = [...calendarTools, ...webTools, ...memoryTools, ...skillTools, ...paymentTools, ...connectorTools];
 
 export const LOCKED_ASK = new Set(['payment.pay', 'message.new_contact']);
 export const toolByName = Object.fromEntries(tools.map(t => [t.name, t]));
 
 export const declarations = () => [{
-  functionDeclarations: tools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters })),
+  functionDeclarations: tools.filter(t => !t.connector || isActive(t.connector)).map(t => ({ name: t.name, description: t.description, parameters: t.parameters })),
 }];
 
 export function policyFor(tool) {

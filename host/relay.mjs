@@ -1,12 +1,14 @@
 // Gzowo Concierge - Firebase Realtime Database relay: the phone and the host both connect outbound.
 // Layout under /c/<sid>: inbox (phone -> host commands), feed (host -> phone events), state (snapshot + heartbeat).
 import { config } from './config.mjs';
-import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread, THREAD } from './commands.mjs';
+import { bus, chat, approve, snapshot, applyPolicy, forgetFact, clearThread, newThread, renameThread, deleteThread, restoreThread, validThread } from './commands.mjs';
+import { today } from './today.mjs';
 import { callTool } from './agent.mjs';
 import { store } from './db.mjs';
 import { mintLiveToken } from './live.mjs';
 import { live } from './live-state.mjs';
 import { createAuth } from './fbauth.mjs';
+import { connectorSummary } from './connectors/index.mjs';
 
 const SV = { '.sv': 'timestamp' };
 const TTL_MS = 10 * 60 * 1000;
@@ -45,7 +47,7 @@ export function startRelay() {
   }
 
   let feedChain = Promise.resolve();
-  const pushFeed = e => { feedChain = feedChain.then(() => call('POST', 'feed', { ...e, ts: SV })); };
+  const pushFeed = e => { const t = validThread(e.thread); feedChain = feedChain.then(() => call('POST', `feed/${t}`, { ...e, thread: t, ts: SV })); };
 
   const stateBody = () => {
     const s = snapshot();
@@ -53,7 +55,10 @@ export function startRelay() {
     for (const [k, v] of Object.entries(s.policies)) policies[k.replace(/\./g, '_')] = v;
     const facts = {}; for (const f of s.facts) facts[f.id] = f.text;
     const pending = {}; for (const p of s.pending) pending[p.id] = p.summary;
-    return { busy: s.busy, policies, facts, pending };
+    const cs = connectorSummary();
+    const labels = {}; for (const [k, v] of Object.entries(s.labels || {})) labels[k.replace(/\./g, '_')] = v;
+    const threads = {}; for (const t of s.threads) threads[t.id] = { title: t.title, updated: t.updated, busy: !!t.busy };
+    return { busy: s.busy, policies, facts, pending, labels, connectors: cs.states, connectorMeta: cs.meta, threads };
   };
   let statePending = false;
   const pushState = () => {
@@ -64,7 +69,7 @@ export function startRelay() {
 
   bus.on('event', e => pushFeed(e));
   bus.on('state', pushState);
-  bus.on('cleared', () => { feedChain = feedChain.then(() => call('DELETE', 'feed')); });
+  bus.on('cleared', t => { feedChain = feedChain.then(() => call('DELETE', `feed/${validThread(t)}`)); });
 
   const ID = /^[\w-]{8,64}$/;
   const remote = new Map();
@@ -84,7 +89,7 @@ export function startRelay() {
       if (!remote.has(m.cid)) {
         const session = { notify: note => call('POST', `live/${m.cid}/notify`, { text: note }) };
         live.sessions.add(session);
-        remote.set(m.cid, { session, timer: setTimeout(() => endRemote(m.cid), 35 * 60e3) });
+        remote.set(m.cid, { session, thread: validThread(m.thread), timer: setTimeout(() => endRemote(m.cid), 35 * 60e3) });
       }
       await call('PUT', `live/${m.cid}/token`, { ...t, ts: SV });
     } catch (err) {
@@ -95,8 +100,9 @@ export function startRelay() {
   async function liveTool(m) {
     let args = {};
     try { args = JSON.parse(m.argsJson || '{}'); } catch {}
-    const emit = e => { const ev = { ...e, rid: m.cid }; call('POST', `live/${m.cid}/ev`, ev); bus.emit('event', ev); };
-    const response = await callTool(THREAD, { name: String(m.name), args }, emit);
+    const thread = remote.get(m.cid)?.thread || 'main';
+    const emit = e => { const ev = { ...e, rid: m.cid, thread }; call('POST', `live/${m.cid}/ev`, ev); bus.emit('event', ev); };
+    const response = await callTool(thread, { name: String(m.name), args }, emit);
     bus.emit('state');
     await call('POST', `live/${m.cid}/ev`, { type: 'pending', pending: Object.fromEntries(snapshot().pending.map(p => [p.id, p.summary])), rid: m.cid });
     await call('PUT', `live/${m.cid}/res/${m.callId}`, { json: JSON.stringify(response) });
@@ -105,8 +111,10 @@ export function startRelay() {
   function liveTurn(m) {
     const u = String(m.user || '').trim().slice(0, 4000), a = String(m.assistant || '').trim().slice(0, 4000);
     const rid = ID.test(m.rid || '') ? m.rid : m.cid;
-    if (u) { store.addContent(THREAD, { role: 'user', parts: [{ text: u }] }); bus.emit('event', { type: 'user', text: u, rid, cid: rid }); }
-    if (a) { store.addContent(THREAD, { role: 'model', parts: [{ text: a }] }); bus.emit('event', { type: 'text', text: a, rid }); }
+    const thread = remote.get(m.cid)?.thread || validThread(m.thread);
+    store.ensureThread(thread);
+    if (u) { store.addContent(thread, { role: 'user', parts: [{ text: u }] }); bus.emit('event', { type: 'user', text: u, rid, cid: rid, thread }); }
+    if (a) { store.addContent(thread, { role: 'model', parts: [{ text: a }] }); bus.emit('event', { type: 'text', text: a, rid, thread }); }
   }
 
   async function onInboxItem(id, m) {
@@ -120,11 +128,16 @@ export function startRelay() {
       return;
     }
     try {
-      if (m.type === 'chat' && typeof m.text === 'string' && m.text.trim()) chat(m.text.trim(), undefined, { cid: typeof m.cid === 'string' ? m.cid.slice(0, 64) : undefined });
+      if (m.type === 'chat' && typeof m.text === 'string' && m.text.trim()) chat(m.text.trim(), undefined, { cid: typeof m.cid === 'string' ? m.cid.slice(0, 64) : undefined, thread: validThread(m.thread) });
       else if (m.type === 'approval' && typeof m.id === 'string') approve(m.id, !!m.approve);
       else if (m.type === 'policy') applyPolicy(String(m.action), String(m.policy));
       else if (m.type === 'forget') forgetFact(Number(m.id));
-      else if (m.type === 'clear') clearThread();
+      else if (m.type === 'clear') clearThread(validThread(m.thread));
+      else if (m.type === 'thread-new') newThread(typeof m.thread === 'string' ? m.thread : undefined);
+      else if (m.type === 'thread-rename' && typeof m.title === 'string') renameThread(validThread(m.thread), m.title);
+      else if (m.type === 'thread-delete') deleteThread(validThread(m.thread));
+      else if (m.type === 'thread-restore') restoreThread(validThread(m.thread));
+      else if (m.type === 'today-refresh') refreshToday();
       else if (m.type === 'live-token' && ID.test(m.cid || '')) liveToken(m);
       else if (m.type === 'live-tool' && ID.test(m.cid || '') && ID.test(m.callId || '')) liveTool(m);
       else if (m.type === 'live-turn' && ID.test(m.cid || '')) liveTurn(m);
@@ -183,17 +196,27 @@ export function startRelay() {
   }
 
   async function trimFeed() {
-    const keys = await call('GET', 'feed', undefined, '?shallow=true');
-    if (!keys) return;
-    const all = Object.keys(keys).sort();
-    if (all.length <= FEED_KEEP) return;
-    const drop = {};
-    all.slice(0, all.length - FEED_KEEP).forEach(k => { drop[k] = null; });
-    await call('PATCH', 'feed', drop);
+    const threads = await call('GET', 'feed', undefined, '?shallow=true');
+    if (!threads) return;
+    for (const t of Object.keys(threads)) {
+      const keys = await call('GET', `feed/${t}`, undefined, '?shallow=true');
+      if (!keys) continue;
+      const all = Object.keys(keys).sort();
+      if (all.length <= FEED_KEEP) continue;
+      const drop = {};
+      all.slice(0, all.length - FEED_KEEP).forEach(k => { drop[k] = null; });
+      await call('PATCH', `feed/${t}`, drop);
+    }
+  }
+
+  async function refreshToday() {
+    try { await call('PATCH', 'state', { todayJson: JSON.stringify(await today(true)) }); } catch (err) { log('today failed:', String(err.message || err).slice(0, 100)); }
   }
 
   setInterval(() => call('PUT', 'state/online', SV), 20000).unref?.();
   setInterval(trimFeed, 30 * 60 * 1000).unref?.();
+  setInterval(refreshToday, 10 * 60 * 1000).unref?.();
+  setTimeout(refreshToday, 5000);
   trimFeed();
   call('DELETE', 'live');
   listen();

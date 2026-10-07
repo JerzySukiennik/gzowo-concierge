@@ -3,6 +3,7 @@ import { generate, textOf } from './gemini.mjs';
 import { store } from './db.mjs';
 import { systemPrompt } from './prompt.mjs';
 import { declarations, toolByName, policyFor } from './tools/index.mjs';
+import { isActive } from './connectors/index.mjs';
 
 const MAX_STEPS = 8;
 
@@ -10,6 +11,7 @@ export async function callTool(thread, call, emit) {
   const tool = toolByName[call.name];
   const args = call.args || {};
   if (!tool) return { ok: false, error: 'unknown tool' };
+  if (tool.connector && !isActive(tool.connector)) return { ok: false, error: 'Ten konektor nie jest połączony. Poproś użytkownika o połączenie go w ustawieniach (Konektory).' };
   const summary = tool.summarize(args);
   if (policyFor(tool) === 'ask') {
     const ask = tool.askText ? tool.askText(args) : summary;

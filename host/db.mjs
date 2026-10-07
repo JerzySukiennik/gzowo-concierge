@@ -15,6 +15,14 @@ db.exec(`
     ts INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS contents_thread ON contents(thread, id);
+  CREATE TABLE IF NOT EXISTS threads (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    titled INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     text TEXT NOT NULL,
@@ -45,10 +53,40 @@ db.exec(`
 
 const now = () => Date.now();
 
+if (!db.prepare("SELECT 1 FROM threads WHERE id = 'main'").get()) {
+  const last = db.prepare("SELECT MAX(ts) AS t FROM contents WHERE thread = 'main'").get().t;
+  db.prepare("INSERT INTO threads (id, title, titled, created, updated) VALUES ('main', 'Rozmowa', 1, ?, ?)").run(now(), last || now());
+}
+
 export const store = {
+  ensureThread(id) {
+    if (!db.prepare('SELECT 1 FROM threads WHERE id = ?').get(id)) {
+      db.prepare('INSERT INTO threads (id, title, titled, created, updated) VALUES (?, ?, 0, ?, ?)').run(id, 'Nowa rozmowa', now(), now());
+    }
+    return id;
+  },
+  listThreads() {
+    return db.prepare('SELECT id, title, titled, updated FROM threads WHERE deleted = 0 ORDER BY updated DESC').all();
+  },
+  getThread(id) {
+    return db.prepare('SELECT id, title, titled, deleted, updated FROM threads WHERE id = ?').get(id) || null;
+  },
+  renameThread(id, title) {
+    db.prepare('UPDATE threads SET title = ?, titled = 1 WHERE id = ?').run(String(title).trim().slice(0, 80) || 'Rozmowa', id);
+  },
+  autoTitleThread(id, title) {
+    db.prepare('UPDATE threads SET title = ?, titled = 1 WHERE id = ? AND titled = 0').run(String(title).trim().slice(0, 80), id);
+  },
+  setThreadDeleted(id, deleted) {
+    db.prepare('UPDATE threads SET deleted = ? WHERE id = ?').run(deleted ? 1 : 0, id);
+  },
+  touchThread(id) {
+    db.prepare('UPDATE threads SET updated = ? WHERE id = ?').run(now(), id);
+  },
   addContent(thread, content) {
     db.prepare('INSERT INTO contents (thread, role, parts, ts) VALUES (?, ?, ?, ?)')
       .run(thread, content.role, JSON.stringify(content.parts), now());
+    db.prepare('UPDATE threads SET updated = ? WHERE id = ?').run(now(), thread);
   },
   loadContents(thread, limit = 60) {
     const rows = db.prepare('SELECT id, role, parts, ts FROM contents WHERE thread = ? ORDER BY id DESC LIMIT ?')

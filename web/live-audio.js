@@ -47,7 +47,7 @@ function fromB64(str) {
   return u.buffer;
 }
 
-export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = () => {}, onTranscript = () => {}, direct = null } = {}) {
+export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = () => {}, onTranscript = () => {}, direct = null, thread = 'main' } = {}) {
   let ctx = null, micCtx = null, ws = null, stream = null, node = null, source = null, gain = null, analyser = null, timer = null, session = null;
   let hostState = 'idle', shown = 'idle', muted = false, playHead = 0, mic = 0, out = 0, stopping = false, ready = false;
   let turn = { user: '', assistant: '' }, chain = Promise.resolve();
@@ -97,7 +97,9 @@ export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = (
 
   function hostUrl() {
     let t = ''; try { t = localStorage.getItem('ct') || ''; } catch {}
-    return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live${t ? '?t=' + encodeURIComponent(t) : ''}`;
+    const q = new URLSearchParams({ thread: thread || 'main' });
+    if (t) q.set('t', t);
+    return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/live?${q}`;
   }
 
   function handleHost(m) {
@@ -159,6 +161,7 @@ export function createLive({ onEvent = () => {}, onState = () => {}, onLevel = (
       session = await direct.open({
         onEvent: ev => onEvent(ev),
         onNotify: text => sendUp({ realtimeInput: { text } }),
+        thread: thread || 'main',
       });
     } catch (e) {
       onEvent({ type: 'error', message: (e && e.message) || 'Nie udało się uruchomić rozmowy.' });

@@ -48,6 +48,9 @@ function brandOf(pan) {
   return 'Karta';
 }
 
+export const sealJson = seal;
+export const openJson = open;
+
 export function listCards() {
   return store.cards();
 }

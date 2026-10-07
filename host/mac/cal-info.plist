@@ -8,4 +8,7 @@
 <key>LSUIElement</key><true/>
 <key>NSCalendarsFullAccessUsageDescription</key><string>Gzowo Concierge reads and edits your calendar for you.</string>
 <key>NSCalendarsUsageDescription</key><string>Gzowo Concierge reads and edits your calendar for you.</string>
+<key>NSRemindersFullAccessUsageDescription</key><string>Gzowo Concierge reads and manages your reminders for you.</string>
+<key>NSRemindersUsageDescription</key><string>Gzowo Concierge reads and manages your reminders for you.</string>
+<key>NSAppleEventsUsageDescription</key><string>Gzowo Concierge controls Notes and Music for you.</string>
 </dict></plist>
