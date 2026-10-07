@@ -1,10 +1,13 @@
-// Gzowo Concierge - live voice screen: face, status, transcript, tool and approval cards with face gaze, mic controls.
-import { createFace } from '../face.js';
+// Gzowo Concierge - live voice screen: glass orb with face and light ribbons, voice glow, status headline, transcript, tool and approval cards, glass control row.
+import { createFace, followPointer } from '../face.js';
 import { createThread } from './thread.js';
+import { createGlow } from './glow.js';
+import { buildAsk } from './ask.js';
 import { icon } from './icons.js';
+import { hold as holdAwake } from './ticker.js';
 
 const STATUS = {
-  idle: ['Dotknij mikrofonu, żeby zacząć', 'Najlepiej działa na słuchawkach.'],
+  idle: ['Co mogę dla Ciebie zrobić?', 'Dotknij mikrofonu, żeby zacząć. Najlepiej działa na słuchawkach.'],
   connecting: ['Łączę…', ''],
   listening: ['Słucham', ''],
   thinking: ['Myślę', ''],
@@ -14,21 +17,24 @@ const STATUS = {
   error: ['Coś poszło nie tak', ''],
 };
 
-export function createLiveScreen({ root, factory, forward, approve, getPending, setPending, onFinal, onClose }) {
+export function createLiveScreen({ root, factory, forward, approve, getPending, setPending, onFinal, onClose, onShell, onKeyboard }) {
   const q = s => root.querySelector(s);
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  const face = createFace(q('#faceCanvas'));
+  const face = createFace(q('#faceCanvas'), { ribbons: true, autoSleep: false });
+  const glow = createGlow(q('#liveGlow'));
   const cards = q('.live-cards'), pendingBox = q('#livePending');
   const steps = createThread({ log: cards, root: q('#liveSteps') });
   const status = q('#liveStatus'), hint = q('#liveHint'), txUser = q('#txUser'), txBot = q('#txBot');
   const micBtn = q('#liveMic'), muteBtn = q('#liveMute'), ring = q('.ring');
   const asks = new Map(), answered = new Map(), stepState = new Map();
-  let live = null, liveState = 'idle', muted = false, open = false, errFlash = false, errTimer = 0, holdTimer = 0;
-  let focusNode = null, holdNode = null, holdUntil = 0, lastTarget = null, lastRole = '', pendingUser = '', ringLevel = -1;
+  let live = null, liveState = 'idle', muted = false, open = false, errFlash = false, errTimer = 0, holdTimer = 0, unfollow = null;
+  let focusNode = null, holdNode = null, holdUntil = 0, lastTarget = null, lastRole = '', pendingUser = '', ringLevel = -1, lastShell = '';
 
-  micBtn.querySelector('.glyph').innerHTML = icon('mic', 28);
+  micBtn.querySelector('.glyph').innerHTML = icon('mic', 30, true);
   muteBtn.querySelector('.glyph').innerHTML = icon('mic', 22);
   q('#liveClose').querySelector('.glyph').innerHTML = icon('close', 22);
+  q('#liveKeys').querySelector('.glyph').innerHTML = icon('keyboard', 22);
+  q('#liveCloseTop').innerHTML = icon('close', 20);
   steps.setAnimate(!reduce.matches);
 
   const runningCount = () => { let n = 0; stepState.forEach(s => { if (s === 'running') n++; }); return n; };
@@ -37,6 +43,7 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
     const [a, b] = STATUS[name] || STATUS.idle;
     if (status.textContent !== a) status.textContent = a;
     hint.textContent = b;
+    root.dataset.s = name;
   }
 
   function refresh() {
@@ -51,13 +58,17 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
     else if (running && liveState !== 'speaking') fs = 'working';
     else fs = liveState === 'connecting' || liveState === 'idle' ? 'idle' : liveState;
     face.setState(fs);
+    glow.setState(liveState === 'connecting' ? 'connecting' : fs);
     paint(fs);
     const active = liveState !== 'idle';
     micBtn.classList.toggle('active', active);
-    micBtn.querySelector('.glyph').innerHTML = icon(active ? 'stop' : 'mic', 28);
+    micBtn.querySelector('.glyph').innerHTML = icon(active ? 'stop' : 'mic', 30, true);
     micBtn.querySelector('.lbl').textContent = active ? 'Zakończ' : 'Zacznij';
     micBtn.setAttribute('aria-label', active ? 'Zakończ rozmowę' : 'Zacznij rozmowę');
     cards.classList.toggle('has', asks.size > 0 || stepState.size > 0 || !!cards.querySelector('.note'));
+    root.classList.toggle('has-cards', cards.classList.contains('has'));
+    const sh = !open ? 'idle' : ask ? 'alert' : running && liveState !== 'speaking' ? 'thinking' : liveState;
+    if (sh !== lastShell) { lastShell = sh; onShell?.(sh); }
   }
 
   function hold(node, ms) {
@@ -100,11 +111,9 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
   function syncPending(pending) {
     for (const [id, summary] of Object.entries(pending)) {
       if (asks.has(id)) continue;
-      const c = document.createElement('div');
-      c.className = 'ask' + (reduce.matches ? '' : ' enter');
-      c.innerHTML = '<div class="ask-head"><span class="live-dot"></span><span>Czeka na Twoją zgodę</span></div><p class="ask-q"></p><div class="ask-btns"><button type="button" class="btn tonal" data-v="0">Nie</button><button type="button" class="btn ink" data-v="1">Tak</button></div>';
-      c.querySelector('.ask-q').textContent = summary;
-      c.querySelectorAll('button').forEach(b => b.onclick = () => { const yes = b.dataset.v === '1'; answered.set(id, yes); approve(id, yes); });
+      const c = buildAsk(summary, yes => { answered.set(id, yes); approve(id, yes); });
+      c.classList.add('live-ask');
+      if (!reduce.matches) c.classList.add('enter');
       asks.set(id, c);
       pendingBox.append(c);
       if (open) requestAnimationFrame(() => c.scrollIntoView({ block: 'nearest', behavior: reduce.matches ? 'auto' : 'smooth' }));
@@ -122,7 +131,7 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
 
   function onState(s) {
     liveState = s;
-    if (s === 'idle') { face.setLevel(0, 0); setRing(0); }
+    if (s === 'idle') { face.setLevel(0, 0); glow.setLevel(0, 0); setRing(0); }
     refresh();
   }
 
@@ -135,6 +144,7 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
 
   function onLevel(l) {
     face.setLevel(l.mic, l.out);
+    glow.setLevel(l.mic, l.out);
     setRing(l.mic);
   }
 
@@ -170,7 +180,7 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
   muteBtn.onclick = () => {
     muted = !muted;
     muteBtn.setAttribute('aria-pressed', String(muted));
-    muteBtn.querySelector('.glyph').innerHTML = icon(muted ? 'micOff' : 'mic', 22);
+    muteBtn.querySelector('.glyph').innerHTML = icon(muted ? 'micOff' : 'mic', 22, muted);
     muteBtn.querySelector('.lbl').textContent = muted ? 'Wyciszony' : 'Wycisz';
     live?.mute(muted);
   };
@@ -180,7 +190,10 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
     open = true;
     root.classList.add('on');
     root.removeAttribute('inert');
+    holdAwake(true);
     face.start();
+    glow.start();
+    if (!unfollow) unfollow = followPointer(face);
     ensureLive();
     refresh();
     requestAnimationFrame(() => root.focus({ preventScroll: true }));
@@ -193,12 +206,17 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
     flushUser();
     root.classList.remove('on');
     root.setAttribute('inert', '');
+    holdAwake(false);
     face.stop();
+    glow.stop();
+    if (unfollow) { unfollow(); unfollow = null; }
+    refresh();
     onClose?.();
   }
 
   q('#liveClose').onclick = hide;
   q('#liveCloseTop').onclick = hide;
+  q('#liveKeys').onclick = () => { hide(); onKeyboard?.(); };
   q('.live-scrim').onclick = hide;
   root.setAttribute('inert', '');
   face.setLevel(0, 0);
@@ -207,5 +225,6 @@ export function createLiveScreen({ root, factory, forward, approve, getPending, 
     show, hide, syncPending, onEvent,
     get isOpen() { return open; },
     get face() { return face; },
+    get shellState() { return lastShell || 'idle'; },
   };
 }

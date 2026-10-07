@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#fafafb" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0d0d0f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -17,55 +17,112 @@
 <title>Gzowo Concierge</title>
 </head>
 <body>
+<svg class="defs" width="0" height="0" aria-hidden="true" focusable="false"><defs><filter id="goo" x="-10%" y="-20%" width="120%" height="140%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceGraphic" stdDeviation="5.5" result="b"/><feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter></defs></svg>
+
+<div id="wall" aria-hidden="true"><i></i><i></i><i></i></div>
+
 <div id="app" data-state="idle" data-busy="0">
-  <header class="bar">
-    <div class="brand">
-      <svg class="orb" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle class="o-ring" cx="16" cy="16" r="13"/><circle class="o-arc" cx="16" cy="16" r="13" pathLength="100"/><circle class="o-core" cx="16" cy="16" r="7"/></svg>
-      <h1>Concierge</h1>
-    </div>
-    <button class="icon-btn" id="gear" type="button" aria-label="Ustawienia" aria-haspopup="dialog" aria-expanded="false"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h8.5M17.5 7H20M4 17h2.5M11.5 17H20"/><circle cx="15" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/></svg></button>
-  </header>
 
-  <div id="banner" role="status"><svg class="orb mini" viewBox="0 0 32 32" aria-hidden="true"><circle class="o-ring" cx="16" cy="16" r="13"/></svg><span></span></div>
+  <div id="stage">
+    <header class="bar">
+      <button class="icon-btn glass" id="menu" type="button" aria-label="Rozmowy" aria-haspopup="dialog"><span data-ic="menu" data-size="22"></span></button>
+      <div class="tb-title">
+        <h1 id="tbTitle" tabindex="0" title="Kliknij dwukrotnie, żeby zmienić nazwę">Rozmowa</h1>
+        <input id="tbRename" type="text" maxlength="60" aria-label="Nazwa rozmowy" autocomplete="off" hidden>
+        <span class="tb-st" id="tbSt" aria-hidden="true"></span>
+      </div>
+      <div class="tb-acts">
+        <button class="tb-btn glass" id="todayBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Dzisiaj"><span data-ic="sun" data-size="19"></span><span class="tb-lbl">Dzisiaj</span></button>
+        <button class="icon-btn glass" id="liveBtn" type="button" aria-label="Rozmowa na żywo" hidden><span data-ic="wave" data-size="21"></span></button>
+      </div>
+    </header>
 
-  <main id="log" role="log" aria-label="Rozmowa" tabindex="-1"><div id="thread"></div></main>
-  <div class="fade-top" aria-hidden="true"></div>
+    <div id="banner" role="status" class="glass"><span class="orb mini" aria-hidden="true"><i class="ob-arc"></i><i class="ob-body"></i></span><span class="b-t"></span></div>
 
-  <div id="dock">
-    <div id="dockInner">
-      <button id="jump" type="button" aria-label="Przewiń na dół"></button>
-      <div id="pending" aria-live="assertive"></div>
-      <form id="form" class="composer">
-        <textarea id="input" rows="1" placeholder="Napisz do Concierge" aria-label="Wiadomość" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
-        <button id="send" type="submit" aria-label="Wyślij" data-mode="send" disabled><svg class="ic ic-send" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5.5M6 11.5l6-6 6 6"/></svg><svg class="ic ic-face" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6.8" y="6.6" width="2.6" height="6" rx="1.3"/><rect x="14.6" y="6.6" width="2.6" height="6" rx="1.3"/><path d="M9.6 17h4.8"/></svg></button>
-      </form>
+    <main id="log" role="log" aria-label="Rozmowa" tabindex="-1"><div id="thread"></div></main>
+    <div class="edge edge-top" aria-hidden="true"></div>
+    <div class="edge edge-bottom" aria-hidden="true"></div>
+
+    <div id="dock">
+      <div id="dockInner">
+        <button id="jump" type="button" aria-label="Przewiń na dół"></button>
+        <div id="pending" aria-live="assertive"></div>
+        <form id="form" class="composer">
+          <div class="cfield">
+            <span class="beam" aria-hidden="true"><i></i></span>
+            <textarea id="input" rows="1" placeholder="Napisz do Concierge" aria-label="Wiadomość" enterkeyhint="send" autocomplete="off" autocapitalize="sentences"></textarea>
+            <div class="ctools">
+              <button class="ct-btn" id="plus" type="button" aria-label="Więcej opcji" aria-haspopup="menu" aria-expanded="false"><span data-ic="plus" data-size="20"></span></button>
+              <span class="ct-sp"></span>
+              <button id="send" type="submit" aria-label="Wyślij" data-mode="send" disabled><span class="g g-live" data-ic="wave" data-size="23"></span><span class="g g-send" data-ic="send" data-size="21"></span></button>
+            </div>
+            <div class="pmenu glass" id="plusMenu" role="menu" aria-label="Więcej opcji" hidden>
+              <button type="button" role="menuitem" data-act="new"><span data-ic="compose" data-size="18"></span><span>Nowa rozmowa</span></button>
+              <button type="button" role="menuitem" data-act="connectors"><span data-ic="link" data-size="18"></span><span>Konektory</span></button>
+              <button type="button" role="menuitem" data-act="skills"><span data-ic="spark" data-size="18"></span><span>Umiejętności</span></button>
+              <button type="button" role="menuitem" data-act="memory"><span data-ic="bookmark" data-size="18"></span><span>Pamięć</span></button>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 </div>
 
-<div id="scrim"></div>
-<aside id="sheet" role="dialog" aria-labelledby="sheetTitle" tabindex="-1">
+<div id="scrimSide" class="scrim"></div>
+<aside id="side" aria-label="Rozmowy">
+  <div class="side-top">
+    <div class="side-brand"><span class="orb" aria-hidden="true"><i class="ob-arc"></i><i class="ob-body"></i></span><span class="b-name">Concierge</span></div>
+    <button class="icon-btn" id="sideClose" type="button" aria-label="Zamknij panel"><span data-ic="close" data-size="20"></span></button>
+  </div>
+  <nav class="side-actions" aria-label="Skróty">
+    <button class="s-act" id="actNew" type="button"><span class="s-ic" data-ic="compose" data-size="19"></span><span>Nowa rozmowa</span></button>
+    <button class="s-act" id="actConn" type="button"><span class="s-ic" data-ic="link" data-size="19"></span><span>Konektory</span></button>
+    <button class="s-act" id="actSkills" type="button"><span class="s-ic" data-ic="spark" data-size="19"></span><span>Umiejętności</span></button>
+    <button class="s-act" id="actMem" type="button"><span class="s-ic" data-ic="bookmark" data-size="19"></span><span>Pamięć</span></button>
+  </nav>
+  <label class="side-search" id="sideSearch" hidden><span data-ic="search" data-size="16"></span><input type="search" placeholder="Szukaj rozmów" aria-label="Szukaj rozmów" autocomplete="off" spellcheck="false"></label>
+  <div id="threadList" role="list" aria-label="Rozmowy"></div>
+  <div class="side-foot"><button class="s-foot" id="sideGear" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="n-tile" data-ic="user" data-size="18" data-filled="1"></span><span class="s-ft"><span class="s-fn">Ustawienia</span><span class="s-fs" id="sideAcct"></span></span><span data-ic="sliders" data-size="19"></span></button></div>
+</aside>
+
+<div id="scrim" class="scrim"></div>
+<aside id="sheet" class="panel" role="dialog" aria-labelledby="sheetTitle" tabindex="-1">
   <div class="grab" aria-hidden="true"></div>
   <div class="sheet-head">
+    <button class="icon-btn" id="sheetBack" type="button" aria-label="Wróć" hidden><span data-ic="chevL" data-size="22"></span></button>
     <h2 id="sheetTitle">Ustawienia</h2>
     <button class="icon-btn" id="sheetClose" type="button" aria-label="Zamknij"></button>
   </div>
   <div class="sheet-body" id="sheetBody"></div>
-  <div id="toast" role="status"></div>
 </aside>
 
+<div id="scrimToday" class="scrim"></div>
+<aside id="today" class="panel" role="dialog" aria-labelledby="todayTitle" tabindex="-1">
+  <div class="grab" aria-hidden="true"></div>
+  <div class="sheet-head">
+    <div class="h-stack"><h2 id="todayTitle">Dzisiaj</h2><p id="todayDate"></p></div>
+    <button class="icon-btn" id="todayClose" type="button" aria-label="Zamknij"></button>
+  </div>
+  <div class="sheet-body" id="todayBody"></div>
+</aside>
+
+<div id="toast" role="status"></div>
+
 <section id="live" role="dialog" aria-modal="true" aria-labelledby="liveTitle" tabindex="-1" inert>
+  <div class="live-glow" id="liveGlow" aria-hidden="true"><i class="gl gl-base"></i><i class="gl gl-core"></i><i class="gl gl-a"></i><i class="gl gl-b"></i></div>
   <div class="live-scrim"></div>
   <div class="live-panel">
     <div class="live-bar">
       <h2 id="liveTitle">Rozmowa na żywo</h2>
-      <button class="icon-btn" id="liveCloseTop" type="button" aria-label="Zamknij"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>
+      <button class="icon-btn glass" id="liveCloseTop" type="button" aria-label="Zamknij"></button>
     </div>
     <div class="live-face"><canvas id="faceCanvas" aria-hidden="true"></canvas></div>
     <div class="live-status"><p id="liveStatus" role="status"></p><p id="liveHint"></p></div>
     <div class="live-tx" aria-live="polite"><p id="txUser"></p><p id="txBot"></p></div>
     <div class="live-cards"><p class="cards-empty">Tu zobaczysz, co robię, i prośby o zgodę.</p><div id="liveSteps"></div><div id="livePending" aria-live="assertive"></div></div>
-    <div class="live-ctrl">
+    <div class="live-ctrl glass">
+      <button class="ctl" id="liveKeys" type="button" aria-label="Wróć do klawiatury"><span class="ball"><span class="glyph"></span></span><span class="lbl">Klawiatura</span></button>
       <button class="ctl" id="liveMute" type="button" aria-pressed="false" aria-label="Wycisz mikrofon"><span class="ball"><span class="glyph"></span></span><span class="lbl">Wycisz</span></button>
       <button class="ctl mic" id="liveMic" type="button" aria-label="Zacznij rozmowę"><span class="ball"><span class="ring"></span><span class="glyph"></span></span><span class="lbl">Zacznij</span></button>
       <button class="ctl" id="liveClose" type="button" aria-label="Zamknij rozmowę na żywo"><span class="ball"><span class="glyph"></span></span><span class="lbl">Zamknij</span></button>
@@ -74,8 +131,8 @@
 </section>
 
 <section id="login" role="dialog" aria-labelledby="loginTitle">
-  <div class="login-card">
-    <svg class="orb big" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle class="o-ring" cx="16" cy="16" r="13"/><circle class="o-arc" cx="16" cy="16" r="13" pathLength="100"/><circle class="o-core" cx="16" cy="16" r="7"/></svg>
+  <div class="login-card glass">
+    <canvas id="loginFace" class="login-face" aria-hidden="true"></canvas>
     <h2 id="loginTitle">Zaloguj się do Concierge</h2>
     <p>Podaj e-mail i hasło. Raz na urządzeniu, potem aplikacja pamięta.</p>
     <form id="loginForm" class="login-form" novalidate>

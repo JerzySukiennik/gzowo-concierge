@@ -1,14 +1,21 @@
-// Gzowo Concierge - conversation thread: messages, grouped tool steps, errors, working indicator, stick-to-bottom scrolling.
+// Gzowo Concierge - conversation thread: messages, goo-merged tool step groups, errors, working indicator, living empty state, stick-to-bottom scrolling.
 import { icon, toolIcon, orbSvg } from './icons.js';
 import { renderMarkdown } from './markdown.js';
+import { createGoo, gooOn } from './glass.js';
+import { createFace, followPointer } from '../face.js';
 
 const STATUS_TEXT = { running: 'w toku', done: 'gotowe', failed: 'nie udało się' };
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? 'Dobrej nocy' : h < 12 ? 'Dzień dobry' : h < 18 ? 'Miłego popołudnia' : 'Dobry wieczór';
+}
 
 export function createThread({ log, root, onStick }) {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
   const steps = new Map();
   const bubbles = new Map();
-  let stick = true, animate = false, busy = false, lockUntil = 0, lastGroup = null, working = null, empty = null;
+  let stick = true, animate = false, busy = false, lockUntil = 0, lastGroup = null, working = null, empty = null, emptyFace = null, emptyFollow = null;
 
   const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   log.addEventListener('scroll', () => {
@@ -31,7 +38,11 @@ export function createThread({ log, root, onStick }) {
     return e;
   }
 
-  function dropEmpty() { if (empty) { empty.remove(); empty = null; } }
+  function dropEmpty() {
+    if (emptyFollow) { emptyFollow(); emptyFollow = null; }
+    if (emptyFace) { emptyFace.destroy(); emptyFace = null; }
+    if (empty) { empty.remove(); empty = null; }
+  }
 
   function place(node, kind, force) {
     dropEmpty();
@@ -75,7 +86,7 @@ export function createThread({ log, root, onStick }) {
     root.querySelectorAll('.retry').forEach(b => b.remove());
     const row = el('div', 'row note');
     row.setAttribute('role', 'alert');
-    row.append(el('span', 'n-ic', icon('alert', 18)));
+    row.append(el('span', 'n-ic', icon('alert', 18, true)));
     const t = el('span', 'n-t'); t.textContent = message; row.append(t);
     if (retry) {
       const b = el('button', 'retry pill', icon('retry', 16) + '<span>Ponów</span>');
@@ -95,19 +106,23 @@ export function createThread({ log, root, onStick }) {
   function setStep(key, name, summary, status, error) {
     let s = steps.get(key);
     if (!s) {
-      const node = el('div', 'step', `<span class="s-ic">${icon(toolIcon(name), 18)}</span><span class="s-body"><span class="s-t"></span><span class="s-err"></span></span><span class="s-st" aria-hidden="true"></span><span class="sr"></span>`);
+      const node = el('div', 'step', `<span class="s-ic">${icon(toolIcon(name), 17)}</span><span class="s-body"><span class="s-t"></span><span class="s-err"></span></span><span class="s-st" aria-hidden="true"></span><span class="sr"></span>`);
       node.setAttribute('role', 'listitem');
+      let first = false;
       if (!lastGroup || !lastGroup.isConnected) {
         lastGroup = el('div', 'steps');
         lastGroup.setAttribute('role', 'list');
         lastGroup.setAttribute('aria-label', 'Kroki Concierge');
+        lastGroup._goo = createGoo(lastGroup);
         lastGroup.append(node);
         place(lastGroup, 'steps');
+        first = true;
       } else {
         if (animate) node.classList.add('enter');
         lastGroup.append(node);
         if (stick) toEnd(true);
       }
+      lastGroup._goo.track(node, { enter: animate && !first && gooOn() });
       s = { node, status: '' };
       steps.set(key, s);
     }
@@ -144,24 +159,29 @@ export function createThread({ log, root, onStick }) {
   function showEmpty(suggestions, pick) {
     if (root.children.length || empty) return;
     empty = el('div', 'empty');
-    empty.innerHTML = `<div class="hero">${orbSvg('big')}</div><h2>Co mam dla Ciebie zrobić?</h2>`;
+    empty.innerHTML = `<div class="hero"><canvas class="hero-face" aria-hidden="true"></canvas></div><p class="hello">${greeting()}</p><h2>Co mam dla Ciebie zrobić?</h2>`;
     const list = el('div', 'suggest');
     list.setAttribute('role', 'list');
     suggestions.forEach(([ic, text]) => {
-      const b = el('button', 'sug', `${icon(ic, 20)}<span></span>`);
+      const b = el('button', 'sug glass', `<span class="sug-ic">${icon(ic, 20)}</span><span class="sug-t"></span>`);
       b.type = 'button'; b.setAttribute('role', 'listitem');
-      b.querySelector('span').textContent = text;
+      b.querySelector('.sug-t').textContent = text;
       b.onclick = () => pick(text);
       list.append(b);
     });
     empty.append(list);
     root.append(empty);
+    emptyFace = createFace(empty.querySelector('.hero-face'));
+    emptyFace.start();
+    emptyFollow = followPointer(emptyFace);
   }
 
   function clear() {
+    dropEmpty();
+    root.querySelectorAll('.steps').forEach(g => g._goo?.destroy());
     root.textContent = '';
     steps.clear(); bubbles.clear();
-    lastGroup = null; working = null; empty = null; stick = true; onStick?.(true);
+    lastGroup = null; working = null; stick = true; onStick?.(true);
     refreshWorking();
   }
 

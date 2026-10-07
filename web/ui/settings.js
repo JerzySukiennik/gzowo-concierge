@@ -1,5 +1,7 @@
-// Gzowo Concierge - settings content: approval switches, memory, persona, skills, cards (Mac only), iPhone QR link, clear chat; deletes are undoable.
+// Gzowo Concierge - settings pages: approvals, connectors, skills, memory, persona, cards (Mac only), iPhone QR, account, clear chat; pushed pages with spring transitions, undoable deletes.
 import { icon } from './icons.js';
+import { createConnectors } from './connectors.js';
+import { EASE, SPRING, reduceMq } from './glass.js';
 
 const LABELS = {
   'calendar.read': 'Kalendarz: czytanie',
@@ -38,15 +40,27 @@ function cardError(msg) {
   return 'Nie udało się zapisać karty.';
 }
 
-export function createSettings({ body, toast, state, getTransport, onCleared }) {
+export function createSettings({ body, head, toast, state, getTransport, onCleared }) {
   const rows = new Map(), facts = new Map();
   const hiddenFacts = new Set();
-  let polList, memList, memEmpty, undo = null, token = 0;
+  const regs = new Map();
+  let rootEl = null, polList = null, memList = null, memEmpty = null, undo = null, token = 0, stack = [], heroSub = null, heroIcons = null, memSub = null, skillSub = null;
 
-  function section(title) {
+  const conn = createConnectors({
+    getTransport, state,
+    policyRow: (action, label, fallback) => policyRow(action, label, fallback),
+    onChange: () => { refreshHero(); stack[stack.length - 1]?.view?.update?.(); sync(); },
+  });
+
+  const labelFor = a => (state.labels && state.labels[a]) || conn.store.labels[a] || LABELS[a] || a;
+  const isAsk = (a, fb) => (state.policies[a] ?? fb) === 'ask';
+
+  function section(title, ic, into = rootEl) {
     const s = el('section', 'grp');
-    s.append(el('h3', null, title));
-    body.append(s);
+    const h = el('h3', null, ic ? `<span class="h-ic">${icon(ic, 14)}</span><span></span>` : '<span></span>');
+    h.lastChild.textContent = title;
+    s.append(h);
+    into.append(s);
     return s;
   }
 
@@ -58,23 +72,26 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
     return b;
   }
 
-  function policyRow(action) {
-    const label = LABELS[action] || action;
+  function subtitle(row, ask) { row.querySelector('.i-sub').textContent = ask ? 'Zapytam o zgodę' : 'Zrobię sam'; }
+
+  function policyRow(action, labelOverride, fallback) {
+    const label = labelOverride || labelFor(action);
     const row = el('div', 'item');
     const txt = el('div', 'item-t', '<span class="i-main"></span><span class="i-sub"></span>');
     txt.querySelector('.i-main').textContent = label;
-    const sw = makeSwitch('Pytaj o zgodę: ' + label, state.policies[action] === 'ask', next => {
+    const sw = makeSwitch('Pytaj o zgodę: ' + label, isAsk(action, fallback), next => {
       getTransport().setPolicy(action, next ? 'ask' : 'auto');
       state.policies[action] = next ? 'ask' : 'auto';
       state.overrides[action] = Date.now();
-      subtitle(row, next);
+      (regs.get(action) || []).forEach(r => { if (r.sw !== sw) r.sw.setAttribute('aria-checked', String(next)); subtitle(r.row, next); });
     });
     row.append(txt, sw);
-    subtitle(row, state.policies[action] === 'ask');
-    return { row, sw };
+    subtitle(row, isAsk(action, fallback));
+    const r = { row, sw, override: !!labelOverride, fallback };
+    if (!regs.has(action)) regs.set(action, []);
+    regs.get(action).push(r);
+    return r;
   }
-
-  function subtitle(row, ask) { row.querySelector('.i-sub').textContent = ask ? 'Zapytam o zgodę' : 'Zrobię sam'; }
 
   function delButton(label, onClick) {
     const b = el('button', 'icon-btn small', icon('trash', 18));
@@ -115,29 +132,100 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
   }
 
   function sync() {
-    if (!polList) return;
-    const actions = Object.keys(state.policies).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-    actions.forEach((a, i) => {
-      let r = rows.get(a);
-      if (!r) { r = policyRow(a); rows.set(a, r); }
-      const ask = state.policies[a] === 'ask';
+    if (polList) {
+      const own = conn.owned();
+      const actions = Object.keys(state.policies).filter(a => !own.has(a)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+      const keep = new Set(actions);
+      rows.forEach((r, a) => { if (!keep.has(a)) { r.row.remove(); rows.delete(a); regs.set(a, (regs.get(a) || []).filter(x => x !== r)); } });
+      actions.forEach((a, i) => {
+        let r = rows.get(a);
+        if (!r) { r = policyRow(a); rows.set(a, r); }
+        if (polList.children[i] !== r.row) polList.insertBefore(r.row, polList.children[i] || null);
+      });
+      polList.parentElement.hidden = actions.length === 0;
+    }
+    regs.forEach((list, action) => list.forEach(r => {
+      const ask = isAsk(action, r.fallback);
       if (r.sw.getAttribute('aria-checked') !== String(ask)) { r.sw.setAttribute('aria-checked', String(ask)); subtitle(r.row, ask); }
-      if (polList.children[i] !== r.row) polList.insertBefore(r.row, polList.children[i] || null);
-    });
+      if (!r.override) { const t = labelFor(action); const m = r.row.querySelector('.i-main'); if (m.textContent !== t) m.textContent = t; }
+    }));
     const ids = Object.keys(state.facts).filter(id => !hiddenFacts.has(id));
-    facts.forEach((f, id) => { if (!ids.includes(id)) { f.row.remove(); facts.delete(id); } });
-    ids.forEach((id, i) => {
-      let f = facts.get(id);
-      if (!f) { f = factRow(id); facts.set(id, f); f.row.querySelector('.i-main').textContent = state.facts[id]; }
-      if (memList.children[i] !== f.row) memList.insertBefore(f.row, memList.children[i] || null);
-    });
-    memEmpty.hidden = ids.length > 0;
-    memList.hidden = ids.length === 0;
-    polList.parentElement.hidden = actions.length === 0;
+    if (memList) {
+      facts.forEach((f, id) => { if (!ids.includes(id)) { f.row.remove(); facts.delete(id); } });
+      ids.forEach((id, i) => {
+        let f = facts.get(id);
+        if (!f) { f = factRow(id); facts.set(id, f); f.row.querySelector('.i-main').textContent = state.facts[id]; }
+        if (memList.children[i] !== f.row) memList.insertBefore(f.row, memList.children[i] || null);
+      });
+      memEmpty.hidden = ids.length > 0;
+      memList.hidden = ids.length === 0;
+    }
+    if (memSub) memSub.textContent = ids.length ? ids.length + ' ' + (ids.length === 1 ? 'zapamiętana rzecz' : ids.length < 5 ? 'zapamiętane rzeczy' : 'zapamiętanych rzeczy') : 'Jeszcze nic';
+  }
+
+  function refreshHero() {
+    if (!heroSub) return;
+    const s = conn.summary();
+    heroSub.textContent = s.loaded ? 'Połączono ' + s.n + ' z ' + s.total : 'Wczytuję…';
+    heroIcons.innerHTML = s.icons.map(i => `<span class="stk">${i}</span>`).join('');
+  }
+
+  function navRow(ic, title, subEl, onClick) {
+    const b = el('button', 'navrow', `<span class="n-tile">${icon(ic, 20)}</span><span class="n-t"><span class="n-main"></span><span class="n-sub"></span></span><span class="n-ch">${icon('chevR', 18)}</span>`);
+    b.type = 'button';
+    b.querySelector('.n-main').textContent = title;
+    if (subEl) b.querySelector('.n-sub').replaceWith(subEl);
+    b.onclick = onClick;
+    return b;
+  }
+
+  function updateHead() {
+    const top = stack[stack.length - 1];
+    head.title.textContent = top ? top.title : 'Ustawienia';
+    head.back.hidden = !top;
+    head.back.setAttribute('aria-label', 'Wróć');
+  }
+
+  function swap(from, to, dir, instant) {
+    to.hidden = false;
+    if (reduceMq.matches || instant || !from.animate) { from.hidden = true; return; }
+    const out = from.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translate3d(${-dir * 26}px,0,0)` }], { duration: 170, easing: EASE, fill: 'forwards' });
+    out.onfinish = () => { from.hidden = true; out.cancel(); };
+    to.animate([{ opacity: 0, transform: `translate3d(${dir * 40}px,0,0)` }, { opacity: 1, transform: 'none' }], { duration: 520, easing: SPRING });
+  }
+
+  function push(title, builder, instant) {
+    const from = stack.length ? stack[stack.length - 1].el : rootEl;
+    if (stack.length) stack[stack.length - 1].scroll = body.scrollTop; else rootEl._scroll = body.scrollTop;
+    const page = el('div', 'page');
+    page.hidden = true;
+    body.append(page);
+    const view = builder(page, push) || {};
+    stack.push({ el: page, title, view, scroll: 0 });
+    swap(from, page, 1, instant);
+    body.scrollTop = 0;
+    updateHead();
+  }
+
+  function pop() {
+    if (!stack.length) return;
+    const top = stack.pop();
+    top.view.destroy?.();
+    const to = stack.length ? stack[stack.length - 1].el : rootEl;
+    to.hidden = false;
+    const scroll = stack.length ? stack[stack.length - 1].scroll : rootEl._scroll || 0;
+    if (reduceMq.matches || !top.el.animate) { top.el.remove(); }
+    else {
+      const out = top.el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translate3d(40px,0,0)' }], { duration: 190, easing: EASE, fill: 'forwards' });
+      out.onfinish = () => top.el.remove();
+      to.animate([{ opacity: 0, transform: 'translate3d(-26px,0,0)' }, { opacity: 1, transform: 'none' }], { duration: 480, easing: SPRING });
+    }
+    body.scrollTop = scroll;
+    updateHead();
   }
 
   function personaSection(t, my) {
-    const s = section('Osobowość');
+    const s = section('Osobowość', 'face');
     const field = el('div', 'field-row');
     field.style.marginTop = '0';
     const ta = el('textarea', 'in');
@@ -158,11 +246,11 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
     reset.onclick = async () => { try { apply(await t.setPersona('')); } catch {} };
   }
 
-  function skillsSection(t, my) {
-    const s = section('Umiejętności');
+  function skillsPage(page) {
+    const t = getTransport(), my = token;
     const list = el('div', 'list'); list.hidden = true;
     const empty = el('p', 'foot flush', 'Brak umiejętności. Poproś Concierge, żeby nauczył się czegoś nowego.');
-    s.append(list, empty);
+    page.append(list, empty);
     const hidden = new Set();
     let data = [];
     const render = () => {
@@ -179,12 +267,25 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
         list.append(row);
       });
       list.hidden = !shown.length; empty.hidden = !!shown.length;
+      if (skillSub) skillSub.textContent = data.length ? data.length + ' ' + (data.length === 1 ? 'umiejętność' : data.length < 5 ? 'umiejętności' : 'umiejętności') : 'Brak';
     };
+    if (!t.listSkills) { empty.textContent = 'Umiejętności są dostępne na Macu.'; return {}; }
     t.listSkills().then(r => { if (my === token) { data = r; render(); } }).catch(() => { empty.textContent = 'Nie udało się wczytać umiejętności.'; });
+    return {};
   }
 
-  function cardsSection(t, my) {
-    const s = section('Karty');
+  function memoryPage(page) {
+    memList = el('div', 'list');
+    memEmpty = el('p', 'foot flush', 'Jeszcze nic. Powiedz mi coś o sobie, a zapamiętam.');
+    page.append(memList, memEmpty);
+    facts.clear();
+    sync();
+    return { destroy() { memList = null; memEmpty = null; facts.clear(); } };
+  }
+
+  function cardsPage(page) {
+    const t = getTransport(), my = token;
+    const s = page;
     const list = el('div', 'list'); list.hidden = true;
     const empty = el('p', 'foot flush', 'Brak kart. Concierge nie zapłaci za nic, dopóki jakiejś nie dodasz.');
     s.append(list, empty);
@@ -250,12 +351,13 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
       submit.disabled = false;
     };
     s.append(open, form);
+    return { destroy() { wipe(); } };
   }
 
   async function phoneSection() {
     const transport = getTransport();
     if (transport.mode !== 'local') return;
-    const s = section('iPhone');
+    const s = section('iPhone', 'phone');
     s.append(el('p', 'foot flush', 'Zeskanuj kod aparatem iPhone\'a, otwórz stronę w Safari, zaloguj się i dodaj ją do ekranu początkowego.'));
     const qr = el('div', 'qr');
     const copy = el('button', 'pill block', icon('copy', 18) + '<span>Kopiuj link</span>');
@@ -277,7 +379,7 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
   function accountSection() {
     const acc = getTransport().account;
     if (!acc) return;
-    const s = section('Konto');
+    const s = section('Konto', 'user');
     if (acc.email) s.append(el('p', 'foot flush', 'Zalogowano jako ' + acc.email + '.'));
     const out = el('button', 'pill block', '<span>Wyloguj to urządzenie</span>');
     out.type = 'button';
@@ -286,9 +388,9 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
   }
 
   function chatSection() {
-    const s = section('Rozmowa');
+    const s = section('Rozmowa', 'chat');
     const wrap = el('div', 'confirm');
-    const first = el('button', 'pill block', icon('trash', 18) + '<span>Wyczyść rozmowę</span>');
+    const first = el('button', 'pill block', icon('trash', 18) + '<span>Wyczyść tę rozmowę</span>');
     first.type = 'button';
     const pair = el('div', 'pair-btns');
     pair.hidden = true;
@@ -306,25 +408,62 @@ export function createSettings({ body, toast, state, getTransport, onCleared }) 
 
   function build() {
     commitUndo();
+    conn.stopPoll();
+    stack.forEach(x => x.view.destroy?.());
+    stack = [];
     const my = ++token;
     const t = getTransport();
     body.textContent = '';
-    rows.clear(); facts.clear();
-    const sp = section('Pytaj o zgodę');
+    rows.clear(); facts.clear(); regs.clear();
+    memList = null;
+    rootEl = el('div', 'page');
+    body.append(rootEl);
+
+    heroSub = el('span', 'n-sub'); heroIcons = el('span', 'stack');
+    const hero = el('button', 'navrow feat', `<span class="n-tile big"></span><span class="n-t"><span class="n-main">Konektory</span></span><span class="n-ch">${icon('chevR', 18)}</span>`);
+    hero.type = 'button';
+    hero.querySelector('.n-tile').replaceWith(heroIcons);
+    hero.querySelector('.n-t').append(heroSub);
+    hero.onclick = () => push('Konektory', page => conn.gallery(page, push));
+    const hs = el('section', 'grp'); hs.append(hero); rootEl.append(hs);
+    refreshHero();
+
+    const sp = section('Pytaj o zgodę', 'shield');
     polList = el('div', 'list');
     sp.append(polList, el('p', 'foot', 'Włączone: zapytam, zanim coś zrobię. Wyłączone: zrobię sam.'));
-    const sm = section('Pamięć');
-    memList = el('div', 'list');
-    memEmpty = el('p', 'foot flush', 'Jeszcze nic. Powiedz mi coś o sobie, a zapamiętam.');
-    sm.append(memList, memEmpty);
+
+    const sn = section('Wiedza', 'bookmark');
+    const nav = el('div', 'list nav');
+    skillSub = el('span', 'n-sub'); memSub = el('span', 'n-sub');
+    skillSub.textContent = 'Co Concierge potrafi';
+    nav.append(
+      navRow('spark', 'Umiejętności', skillSub, () => push('Umiejętności', skillsPage)),
+      navRow('bookmark', 'Pamięć', memSub, () => push('Pamięć', memoryPage)),
+    );
+    if (t.listCards && localHost) { const cs = el('span', 'n-sub'); cs.textContent = 'Tylko na tym Macu'; nav.append(navRow('card', 'Karty', cs, () => push('Karty', cardsPage))); }
+    sn.append(nav);
+
     if (t.getPersona) personaSection(t, my);
-    if (t.listSkills) skillsSection(t, my);
-    if (t.listCards && localHost) cardsSection(t, my);
     phoneSection();
     chatSection();
     accountSection();
+    updateHead();
     sync();
+    conn.load();
+    if (t.listSkills) t.listSkills().then(r => { if (my === token && skillSub) skillSub.textContent = r.length ? 'Zapisane: ' + r.length : 'Brak'; }).catch(() => {});
   }
 
-  return { build, sync, commitUndo };
+  function go(name, instant) {
+    if (!rootEl) return;
+    while (stack.length) pop();
+    const t = getTransport();
+    if (name === 'connectors') push('Konektory', page => conn.gallery(page, push), instant);
+    else if (name === 'skills') push('Umiejętności', skillsPage, instant);
+    else if (name === 'memory') push('Pamięć', memoryPage, instant);
+    else if (name === 'cards' && t.listCards) push('Karty', cardsPage, instant);
+  }
+
+  head.back.onclick = () => pop();
+
+  return { build, sync, commitUndo, go, back: pop, get depth() { return stack.length; }, loadConnectors: () => conn.load(), connectors: conn };
 }
