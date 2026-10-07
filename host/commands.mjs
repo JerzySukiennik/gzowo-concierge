@@ -11,12 +11,13 @@ import { live } from './live-state.mjs';
 export const THREAD = 'main';
 
 const SHAPES = ['circle', 'pebble', 'squircle', 'capsule', 'triangle', 'hexagon', 'cloud', 'droplet'];
+const COLORS = ['auto', 'black', 'white'];
 export function getAvatar() {
   const a = store.getSetting('avatar', null) || {};
-  return { shape: SHAPES.includes(a.shape) ? a.shape : 'circle', color: typeof a.color === 'string' && /^[\w#-]{1,24}$/.test(a.color) ? a.color : 'sky' };
+  return { shape: SHAPES.includes(a.shape) ? a.shape : 'circle', color: COLORS.includes(a.color) ? a.color : 'auto' };
 }
 export function setAvatar(shape, color) {
-  const next = { shape: SHAPES.includes(shape) ? shape : getAvatar().shape, color: typeof color === 'string' && /^[\w#-]{1,24}$/.test(color) ? color : getAvatar().color };
+  const next = { shape: SHAPES.includes(shape) ? shape : getAvatar().shape, color: COLORS.includes(color) ? color : getAvatar().color };
   store.setSetting('avatar', next);
   bus.emit('state');
   return next;
