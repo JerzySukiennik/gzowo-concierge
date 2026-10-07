@@ -12,14 +12,14 @@ struct GlassPanel: ViewModifier {
         content
             .background(shape.fill(strength))
             .background(shape.fill(light ? Color.white.opacity(0.28) : Color.white.opacity(0.04)))
+            .background(
+                shape.fill(LinearGradient(colors: [Color.white.opacity(light ? 0.34 : 0.07), .clear], startPoint: .top, endPoint: .init(x: 0.5, y: 0.22)))
+            )
             .clipShape(shape)
             .overlay(
                 shape.strokeBorder(
                     LinearGradient(colors: [Color.white.opacity(light ? 0.95 : 0.30), Color.white.opacity(light ? 0.25 : 0.05), Color.white.opacity(light ? 0.55 : 0.12)], startPoint: .topLeading, endPoint: .bottomTrailing),
                     lineWidth: 0.9)
-            )
-            .overlay(
-                shape.fill(LinearGradient(colors: [Color.white.opacity(light ? 0.34 : 0.07), .clear], startPoint: .top, endPoint: .init(x: 0.5, y: 0.22)))
                     .allowsHitTesting(false)
             )
             .shadow(color: .black.opacity(light ? 0.07 : 0.28), radius: 14, y: 5)

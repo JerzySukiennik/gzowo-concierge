@@ -86,13 +86,14 @@ const sheet = createSheet({
     planTight(sheetEl);
     settings.build();
     $('sideGear').setAttribute('aria-expanded', 'true');
+    document.body.classList.add('rpanel');
     syncInert();
     if (sheet.modal) requestAnimationFrame(() => sheetEl.focus({ preventScroll: true }));
   },
   onClose() {
     settings.commitUndo();
     $('sideGear').setAttribute('aria-expanded', 'false');
-    if (!todaySheet.isOpen) document.body.classList.remove('tight');
+    if (!todaySheet.isOpen) { document.body.classList.remove('tight'); document.body.classList.remove('rpanel'); }
     syncInert();
     if (sheet.modal || sheetEl.contains(document.activeElement)) (wideMq.matches ? input : $('menu')).focus({ preventScroll: true });
   },
@@ -107,6 +108,7 @@ const todaySheet = createSheet({
     planTight(todayEl);
     $('todayBtn').setAttribute('aria-expanded', 'true');
     $('todayBtn').classList.add('on');
+    document.body.classList.add('rpanel');
     $('todayDate').textContent = cap(new Date().toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' }));
     syncInert();
     loadToday();
@@ -118,6 +120,7 @@ const todaySheet = createSheet({
   onClose(m) {
     $('todayBtn').setAttribute('aria-expanded', 'false');
     $('todayBtn').classList.remove('on');
+    if (!sheet.isOpen) document.body.classList.remove('rpanel');
     clearInterval(todayTimer);
     if (!sheet.isOpen) document.body.classList.remove('tight');
     syncInert();
@@ -299,6 +302,7 @@ function renderBanner() {
   } else if (!state.online) msg = 'Concierge nie odpowiada. Sprawdź, czy działa na Macu.';
   if (msg) banner.querySelector('.b-t').textContent = msg;
   banner.classList.toggle('on', !!msg);
+  app.classList.toggle('has-banner', !!msg);
   const st = !state.online || !state.link ? 'offline' : state.busy ? 'busy' : 'idle';
   app.dataset.state = st;
   $('tbSt').textContent = st === 'busy' ? 'Pracuję' : st === 'offline' ? 'Offline' : '';
@@ -412,7 +416,7 @@ document.addEventListener('pointerdown', e => { if (!menu.hidden && !menu.contai
 
 new ResizeObserver(() => {
   const h = dock.offsetHeight;
-  log.style.paddingBottom = h + 16 + 'px';
+  log.style.paddingBottom = h + 48 + 'px';
   stage.style.setProperty('--dock-h', h + 'px');
   if (thread.stick) thread.toEnd(false);
 }).observe(dock);

@@ -125,5 +125,5 @@ export const DEFAULTS = { shape: 'circle', color: 'auto' };
 
 export function inkOf(color, dark) {
   const c = color === 'black' || color === 'white' ? color : dark ? 'white' : 'black';
-  return c === 'black' ? { body: '#111111', eye: '#ffffff', line: null } : { body: '#ffffff', eye: '#111111', line: '#111111' };
+  return c === 'black' ? { body: '#111111', eye: '#ffffff', line: dark ? '#6a6e76' : null } : { body: '#ffffff', eye: '#111111', line: '#111111' };
 }

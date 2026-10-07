@@ -76,8 +76,8 @@ function bodyPath(c, radii, R, yo) {
 function zeds(c, R, t, a) {
   c.lineCap = 'round'; c.lineJoin = 'round';
   for (let i = 0; i < 3; i++) {
-    const ph = ((t * 0.00045 + i / 3) % 1), s = R * (0.07 + 0.055 * ph + i * 0.01);
-    const x = R * (0.62 + ph * 0.34) + Math.sin(ph * 6 + i) * R * 0.03, y = -R * (0.46 + ph * 0.78);
+    const ph = ((t * 0.00045 + i / 3) % 1), s = R * (0.05 + 0.04 * ph);
+    const x = R * (0.6 + ph * 0.2) + Math.sin(ph * 6 + i) * R * 0.025, y = -R * (0.5 + ph * 0.42);
     c.globalAlpha = a * Math.min(1, ph * 5) * Math.min(1, (1 - ph) * 2.2);
     c.lineWidth = Math.max(1.4, s * 0.34);
     c.beginPath(); c.moveTo(x - s, y - s); c.lineTo(x + s, y - s); c.lineTo(x - s, y + s); c.lineTo(x + s, y + s); c.stroke();
@@ -109,8 +109,8 @@ export function paintBot(c, gfx, S) {
       c.fillStyle = gfx.eye; c.beginPath(); pill(c, w, h, yc); c.fill();
     }
     if (arcT > 0) {
-      c.globalAlpha = e.al * arcT; c.strokeStyle = gfx.eye; c.lineCap = 'round'; c.lineWidth = w * 0.5;
-      c.beginPath(); c.moveTo(-w * 1.05, 0); c.quadraticCurveTo(0, w * 1.5 * S.sleep, w * 1.05, 0); c.stroke();
+      c.globalAlpha = e.al * arcT; c.strokeStyle = gfx.eye; c.lineCap = 'round'; c.lineWidth = Math.max(1.5, w * 0.42);
+      c.beginPath(); c.moveTo(-w * 0.78, 0); c.quadraticCurveTo(0, w * 1.1 * S.sleep, w * 0.78, 0); c.stroke();
     }
     c.restore();
   }

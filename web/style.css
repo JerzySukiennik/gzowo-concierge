@@ -26,7 +26,7 @@
   --gl1: rgba(140, 148, 162, .6); --gl2: rgba(255, 255, 255, .95); --gl3: rgba(176, 183, 196, .62); --gl4: rgba(255, 255, 255, .8);
   --bf-s: blur(18px) saturate(1.2); --bf-l: blur(34px) saturate(1.3);
   --gut: 14px; --col: 720px; --bar: 36px; --sb: 0px;
-  --z-edge: 5; --z-bar: 12; --z-banner: 15; --z-dock: 20; --z-live: 50; --z-scrim: 70; --z-panel: 75; --z-toast: 90; --z-login: 100;
+  --z-bar: 12; --z-banner: 15; --z-dock: 20; --z-live: 50; --z-scrim: 70; --z-panel: 75; --z-toast: 90; --z-login: 100;
   --ease: cubic-bezier(.22, 1, .36, 1);
   --spring: cubic-bezier(.22, 1, .36, 1);
   --spring-b: cubic-bezier(.34, 1.4, .5, 1);
@@ -167,19 +167,17 @@ body:has(#login.on) #app, body:has(#login.on) #side { opacity: 0; visibility: hi
 @media (min-width: 560px) { .tb-btn { padding: 0 14px 0 11px; } .tb-lbl { display: inline; } }
 #menu { display: grid; }
 
-.edge { position: absolute; z-index: var(--z-edge); left: 0; right: 0; pointer-events: none; }
-.edge-top { top: 0; height: calc(var(--top) + 60px); background: linear-gradient(var(--veil), transparent); -webkit-backdrop-filter: var(--bf-s); backdrop-filter: var(--bf-s); -webkit-mask-image: linear-gradient(#000 52%, transparent); mask-image: linear-gradient(#000 52%, transparent); }
-.edge-bottom { bottom: 0; height: calc(var(--dock-h, 70px) + 26px); background: linear-gradient(transparent, var(--veil)); -webkit-backdrop-filter: var(--bf-s); backdrop-filter: var(--bf-s); -webkit-mask-image: linear-gradient(transparent, #000 46%); mask-image: linear-gradient(transparent, #000 46%); }
-html[data-shell="mac"] .edge { display: none; }
-html[data-shell="mac"] #log {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--top) + 42px), #000 calc(var(--top) + 56px), #000 calc(100% - var(--dock-h, 70px) - 14px), transparent calc(100% - var(--dock-h, 70px) + 6px));
-  mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--top) + 42px), #000 calc(var(--top) + 56px), #000 calc(100% - var(--dock-h, 70px) - 14px), transparent calc(100% - var(--dock-h, 70px) + 6px));
+#log {
+  --bn: 0px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--top) + 42px + var(--bn)), #000 calc(var(--top) + 56px + var(--bn)), #000 calc(100% - var(--dock-h, 70px) - 44px), transparent calc(100% - var(--dock-h, 70px) + 6px));
+  mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--top) + 42px + var(--bn)), #000 calc(var(--top) + 56px + var(--bn)), #000 calc(100% - var(--dock-h, 70px) - 44px), transparent calc(100% - var(--dock-h, 70px) + 6px));
 }
+#app.has-banner #log { --bn: 46px; }
 
 #banner { position: absolute; z-index: var(--z-banner); top: calc(var(--top) + 48px); left: calc(var(--sb) + var(--gut)); right: var(--gut); width: fit-content; max-width: 440px; margin: 0 auto; display: flex; align-items: center; gap: 10px; padding: 8px 16px 8px 12px; border-radius: 22px; font-size: .84rem; line-height: 1.3; opacity: 0; pointer-events: none; transform: translate3d(0, -14px, 0) scale(.97); transition: transform .5s var(--spring), opacity .25s; -webkit-backdrop-filter: var(--bf-s); backdrop-filter: var(--bf-s); }
 #banner.on { opacity: 1; transform: none; }
 
-#log { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: calc(var(--top) + 56px) max(var(--gut), env(safe-area-inset-right)) 90px calc(var(--sb) + max(var(--gut), env(safe-area-inset-left))); scrollbar-width: thin; scrollbar-color: var(--hair) transparent; outline: none; }
+#log { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: calc(var(--top) + 56px + var(--bn)) max(var(--gut), env(safe-area-inset-right)) 90px calc(var(--sb) + max(var(--gut), env(safe-area-inset-left))); scrollbar-width: thin; scrollbar-color: var(--hair) transparent; outline: none; }
 #thread { max-width: var(--col); margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
 #thread > * { flex: none; }
 #thread > .row, #thread > .steps, #thread > .working { margin-top: 16px; }
@@ -312,7 +310,7 @@ html[data-fx="lite"] .beam i { animation-duration: 6s; }
 .pmenu button:hover, .pmenu button:focus-visible { background: var(--tint); }
 .pmenu button:active { transform: scale(.98); }
 
-#jump { position: absolute; top: -50px; left: 50%; width: 40px; height: 40px; margin-left: -20px; border: 0; border-radius: 50%; color: var(--ink); display: grid; place-items: center; background: linear-gradient(180deg, var(--gt1), var(--gt2)); box-shadow: 0 0 0 .5px var(--g-edge), var(--sh-s), inset 0 1px 0 var(--hi); opacity: 0; transform: translate3d(0, 10px, 0) scale(.9); pointer-events: none !important; transition: transform .5s var(--spring), opacity .2s; }
+#jump { position: absolute; top: -44px; left: 50%; width: 36px; height: 36px; margin-left: -18px; border: 0; border-radius: 50%; color: var(--ink); display: grid; place-items: center; background: linear-gradient(180deg, var(--gt1), var(--gt2)); box-shadow: 0 0 0 .5px var(--g-edge), var(--sh-s), inset 0 1px 0 var(--hi); opacity: 0; transform: translate3d(0, 10px, 0) scale(.9); pointer-events: none !important; transition: transform .5s var(--spring), opacity .2s; }
 #jump.on { opacity: 1; transform: none; pointer-events: auto !important; }
 #jump.on:active { transform: scale(.92); }
 
@@ -367,9 +365,8 @@ html[data-shell="mac"] #side, html[data-sidebar="native"] #side, html[data-shell
   #menu { display: none; }
   body.tight #side { transform: translate3d(-120%, 0, 0); opacity: 0; pointer-events: none; }
   .bar { padding-top: calc(var(--shell-top) + 4px); }
-  #log { padding-top: calc(var(--shell-top) + 56px); }
+  #log { padding-top: calc(var(--shell-top) + 56px + var(--bn)); }
   #banner { top: calc(var(--shell-top) + 48px); }
-  .edge-top { height: calc(var(--shell-top) + 60px); }
   .hero { width: 220px; height: 180px; }
   .suggest { grid-template-columns: repeat(3, 1fr); }
   .sug { flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 96px; padding: 12px 14px; border-radius: 24px; }
@@ -393,6 +390,7 @@ html[data-shell="mac"] #side, html[data-sidebar="native"] #side, html[data-shell
   .grab { display: none; }
   .sheet-head { padding-top: 8px; }
   #scrim, #scrimToday { display: none; }
+  body.rpanel .tb-acts { visibility: hidden; }
 }
 
 .grp { margin-top: 18px; }
@@ -683,5 +681,5 @@ textarea.in { resize: none; display: block; min-height: 120px; }
 @media (prefers-contrast: more) {
   :root { --g-edge: rgba(20, 22, 28, .5); --hair: rgba(20, 22, 28, .3); --dim: #3a3d45; --faint: #4a4e57; }
 }
-html[data-fx="lite"] .panel, html[data-fx="lite"] .pmenu, html[data-fx="lite"] .edge, html[data-fx="lite"] #banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
+html[data-fx="lite"] .panel, html[data-fx="lite"] .pmenu, html[data-fx="lite"] #banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
 html[data-fx="lite"] .gl-a, html[data-fx="lite"] .gl-b { display: none; }

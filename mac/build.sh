@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 APP="build/Gzowo Concierge.app"
 ARCH="$(uname -m)"
 rm -rf build && mkdir -p build "$APP/Contents/MacOS" "$APP/Contents/Resources"
-python3 icon/make_icon.py build/icon
+if [ -f ../web/icon-1024.png ]; then python3 icon/make_icon_from_art.py ../web/icon-1024.png build/icon; else python3 icon/make_icon.py build/icon; fi
 swiftc -O -swift-version 5 -target "$ARCH-apple-macosx26.0" Sources/*.swift -o "$APP/Contents/MacOS/Concierge"
 cp Info.plist "$APP/Contents/Info.plist"
 cp build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

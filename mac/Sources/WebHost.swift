@@ -48,6 +48,14 @@ final class WebHost: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         retryTimer?.invalidate(); retryTimer = nil
         onLoadStateChange?(true)
+        if let js = ProcessInfo.processInfo.environment["CONCIERGE_EVAL"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.view.evaluateJavaScript(js) { result, error in
+                    let text = error.map { "ERR \($0)" } ?? "\(result ?? "nil")"
+                    try? text.write(toFile: "/tmp/concierge-eval.txt", atomically: true, encoding: .utf8)
+                }
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed() }
