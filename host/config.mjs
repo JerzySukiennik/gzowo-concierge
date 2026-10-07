@@ -45,7 +45,7 @@ export const config = {
     sid: env.RELAY_SID,
     hostingUrl: (env.HOSTING_URL || 'https://gzowo-concierge.web.app').replace(/\/$/, ''),
     enabled: env.RELAY !== 'off',
-    apiKey: env.FIREBASE_API_KEY || 'AIzaSyBpHUR8B05PYKsqB9VboE5rbLNUwyWU52U',
+    apiKey: env.FIREBASE_API_KEY || '',
     hostEmail: env.HOST_EMAIL || '',
     hostPassword: env.HOST_PASSWORD || '',
   },

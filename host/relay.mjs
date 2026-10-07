@@ -13,7 +13,7 @@ const TTL_MS = 10 * 60 * 1000;
 const FEED_KEEP = 300;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const authMode = () => !!(config.relay.hostEmail && config.relay.hostPassword);
+const authMode = () => !!(config.relay.hostEmail && config.relay.hostPassword && config.relay.apiKey);
 
 export function pairingUrl() {
   return authMode() ? config.relay.hostingUrl : `${config.relay.hostingUrl}/#s=${config.relay.sid}`;

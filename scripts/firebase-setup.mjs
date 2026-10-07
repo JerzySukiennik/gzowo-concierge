@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const P = 'gzowo-concierge';
 const DB = 'https://gzowo-concierge-default-rtdb.europe-west1.firebasedatabase.app';
-const API_KEY = 'AIzaSyBpHUR8B05PYKsqB9VboE5rbLNUwyWU52U';
+const API_KEY = fs.readFileSync(path.join(ROOT, 'web', 'config.js'), 'utf8').match(/apiKey:\s*'([^']+)'/)[1];
 const OWNER_EMAIL = process.argv[2];
 if (!OWNER_EMAIL) { console.error('usage: node scripts/firebase-setup.mjs <owner e-mail>'); process.exit(1); }
 const HOST_EMAIL = 'host@concierge.gzowo.fun';
@@ -46,7 +46,8 @@ if (host.created) {
   for (const p of envPaths) {
     if (!fs.existsSync(p)) continue;
     const kept = fs.readFileSync(p, 'utf8').split('\n').filter(l => !/^HOST_(EMAIL|PASSWORD)=/.test(l)).join('\n').replace(/\n*$/, '\n');
-    fs.writeFileSync(p, `${kept}HOST_EMAIL=${HOST_EMAIL}\nHOST_PASSWORD=${hostPassword}\n`, { mode: 0o600 });
+    const kept2 = kept.split('\n').filter(l => !/^FIREBASE_API_KEY=/.test(l)).join('\n').replace(/\n*$/, '\n');
+    fs.writeFileSync(p, `${kept2}FIREBASE_API_KEY=${API_KEY}\nHOST_EMAIL=${HOST_EMAIL}\nHOST_PASSWORD=${hostPassword}\n`, { mode: 0o600 });
   }
   console.log('host account created; credentials written to .env files (not printed)');
 } else console.log('host account already exists (password unchanged; if .env lacks HOST_PASSWORD, delete the account in the console and rerun)');
