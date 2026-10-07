@@ -117,7 +117,7 @@ export const connectors = [
       T('music', 'music_now', 'music.read', 'Muzyka: sterowanie', 'Tell what is playing right now in the Music app.', none, () => 'Sprawdzam, co gra', () => cal('music-now')),
       T('music', 'music_control', 'music.control', 'Muzyka: sterowanie', 'Control the Music app: action play, pause, toggle, next or previous.', { type: 'object', properties: { action: { type: 'string', description: 'play, pause, toggle, next, previous' } }, required: ['action'] }, a => `Muzyka: ${a.action}`, a => cal('music-control', { action: a.action })),
       T('music', 'music_volume', 'music.control', 'Muzyka: sterowanie', 'Set the Music app volume 0-100.', { type: 'object', properties: { level: { type: 'number' } }, required: ['level'] }, a => `Ustawiam głośność: ${a.level}`, a => cal('music-volume', { level: a.level })),
-      T('music', 'music_play', 'music.control', 'Muzyka: sterowanie', 'Play a track from the Music library by title, artist or album.', { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, a => `Włączam: ${a.query}`, a => cal('music-play', { query: a.query })),
+      T('music', 'music_play', 'music.control', 'Muzyka: sterowanie', 'Play a track from the LOCAL Music library by exact title, artist or album words (not genre, not the Apple Music streaming catalog). If it fails because the library is empty or the track is missing, say so plainly and do not keep retrying with other guesses.', { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }, a => `Włączam: ${a.query}`, a => cal('music-play', { query: a.query })),
     ],
     ...macLocal('music', () => cal('music-now')),
   },

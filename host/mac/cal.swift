@@ -335,6 +335,7 @@ case "music-play":
     let q = asEsc(opt["query"] ?? "")
     let src = """
     tell application "Music"
+        if (count of tracks of library playlist 1) is 0 then return "emptylibrary"
         try
             set t to first track of library playlist 1 whose name contains "\(q)" or artist contains "\(q)" or album contains "\(q)"
             play t
@@ -345,7 +346,8 @@ case "music-play":
     end tell
     """
     let raw = runScript(src)
-    if raw == "notfound" { fail("Nie znalazłem takiego utworu w bibliotece Muzyki.") }
+    if raw == "emptylibrary" { fail("Biblioteka aplikacji Muzyka jest pusta, więc nie ma czego odtworzyć. Ta funkcja gra tylko utwory zapisane w bibliotece, nie z katalogu Apple Music. Powiedz użytkownikowi, że musi dodać utwory do biblioteki (albo poczekać na konektor Spotify).") }
+    if raw == "notfound" { fail("Nie znalazłem takiego utworu w bibliotece Muzyki. Szukam tylko po tytule, wykonawcy i albumie w lokalnej bibliotece, nie po gatunku.") }
     let p = raw.components(separatedBy: "||")
     out(["ok": true, "track": p.first ?? "", "artist": p.count > 1 ? p[1] : ""])
 
