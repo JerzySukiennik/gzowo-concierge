@@ -210,7 +210,8 @@ async function boot() {
   fit();
   const qs = new URLSearchParams(location.search);
   const demo = qs.get('demo');
-  const relay = !demo && (/(\.web\.app|\.firebaseapp\.com)$/.test(location.hostname) || qs.get('relay') === '1');
+  const onHost = /^(localhost|127\.0\.0\.1|\[::1\]|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[\w-]+\.local)$/.test(location.hostname);
+  const relay = !demo && (!onHost || qs.get('relay') === '1');
   const on = { event: onEvent, state: mergeState, queued: (cid, text) => { if (cid) thread.addUser(text, cid, true); } };
   if (demo === 'login') { $('login').classList.add('on'); app.inert = true; return; }
   if (demo) {

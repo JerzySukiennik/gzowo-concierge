@@ -1,13 +1,25 @@
 // Gzowo Concierge - phone live voice smoke test: acts like the phone (token via relay, direct Gemini session, tools via relay).
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 const DB = process.env.DB || 'https://gzowo-concierge-default-rtdb.europe-west1.firebasedatabase.app';
 const SID = process.env.SID;
-if (!SID) { console.error('SID env required (use a test sid, not the real one)'); process.exit(1); }
-const base = `${DB}/c/${SID}`;
+const AUTH = process.env.AUTH === '1';
+if (!SID && !AUTH) { console.error('SID env required (test sid), or AUTH=1 to sign in with the host account from .env'); process.exit(1); }
+let idToken = '';
+if (AUTH) {
+  const env = Object.fromEntries(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.env'), 'utf8').split('\n').map(l => l.match(/^([A-Z_]+)=(.*)$/)).filter(Boolean).map(m => [m[1], m[2]]));
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${env.FIREBASE_API_KEY}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: env.HOST_EMAIL, password: env.HOST_PASSWORD, returnSecureToken: true }) });
+  idToken = (await r.json()).idToken;
+  if (!idToken) { console.error('sign-in failed'); process.exit(1); }
+}
+const base = AUTH ? `${DB}/u/main` : `${DB}/c/${SID}`;
+const authQ = () => (AUTH ? `?auth=${idToken}` : '');
 const text = process.argv[2] || 'Co mam jutro w kalendarzu?';
 const t0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
-const rest = async (method, path, body) => { const r = await fetch(`${base}/${path}.json`, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return r.json(); };
+const rest = async (method, path, body) => { const r = await fetch(`${base}/${path}.json${authQ()}`, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); return r.json(); };
 const send = msg => rest('POST', 'inbox', { ...msg, ts: { '.sv': 'timestamp' } });
 const waitFor = async (path, ms) => { const end = Date.now() + ms; while (Date.now() < end) { const v = await rest('GET', path); if (v) return v; await new Promise(r => setTimeout(r, 150)); } throw new Error('timeout ' + path); };
 
