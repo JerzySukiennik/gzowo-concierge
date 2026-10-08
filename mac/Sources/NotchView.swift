@@ -39,12 +39,12 @@ struct NotchView: View {
     private var contentHeight: CGFloat { m.openHeight }
 
     private func bot(_ size: CGFloat) -> some View {
-        NotchBot(kind: m.avatarShape, color: m.avatarColor, size: size, busy: m.busy || m.streaming, alert: !m.pending.isEmpty, look: m.look, blink: m.blink)
+        NotchBot(kind: m.avatarShape, color: "white", size: size, busy: m.busy || m.streaming, alert: !m.pending.isEmpty, look: m.look, blink: m.blink)
     }
 
     private var collapsed: some View {
         HStack(spacing: 8) {
-            bot(15).padding(.leading, 10)
+            bot(20).padding(.leading, 8)
             Spacer(minLength: 0)
             if !m.pending.isEmpty {
                 Text("\(m.pending.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
