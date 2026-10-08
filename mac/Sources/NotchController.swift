@@ -71,7 +71,8 @@ final class NotchController {
 
     private func layoutForScreen() {
         let s = screen
-        var size = CGSize(width: 190, height: 32)
+        let bar = s.frame.maxY - s.visibleFrame.maxY
+        var size = CGSize(width: 150, height: bar >= 20 ? bar : 24)
         if s.safeAreaInsets.top > 0 {
             let l = s.auxiliaryTopLeftArea?.width ?? 0, r = s.auxiliaryTopRightArea?.width ?? 0
             size = CGSize(width: max(150, s.frame.width - l - r + 6), height: s.safeAreaInsets.top)
