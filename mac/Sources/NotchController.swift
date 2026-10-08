@@ -18,7 +18,6 @@ final class NotchController {
     private var monitors: [Any] = []
     private var expandWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
-    private var shrinkWork: DispatchWorkItem?
     private var blinkTimer: Timer?
     private let margin: CGFloat = 36
     private let key = "notchEnabled"
@@ -92,9 +91,9 @@ final class NotchController {
         return min(h + 44, 360)
     }
 
-    private func frame(for size: CGSize) -> NSRect {
+    private var panelFrame: NSRect {
         let s = screen.frame
-        let w = size.width + margin * 2, h = size.height + margin
+        let w = model.openSize.width + margin * 2, h = 360 + margin
         return NSRect(x: s.midX - w / 2, y: s.maxY - h, width: w, height: h)
     }
 
@@ -104,23 +103,15 @@ final class NotchController {
     }
 
     private func resizePanel() {
-        guard enabled, let panel else { return }
-        shrinkWork?.cancel()
-        if model.expanded { panel.setFrame(frame(for: CGSize(width: model.openSize.width, height: 360)), display: false) }
-        else {
-            let w = DispatchWorkItem { [weak self] in
-                guard let self, !self.model.expanded else { return }
-                self.panel.setFrame(self.frame(for: self.model.closedSize), display: false)
-            }
-            shrinkWork = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: w)
-        }
+        guard enabled, let panel, panel.frame != panelFrame else { return }
+        panel.setFrame(panelFrame, display: false)
     }
 
     private func apply() {
         guard let panel else { return }
         if enabled {
-            panel.setFrame(frame(for: model.expanded ? CGSize(width: model.openSize.width, height: 360) : model.closedSize), display: true)
+            panel.setFrame(panelFrame, display: true)
+            panel.ignoresMouseEvents = true
             panel.orderFrontRegardless()
         } else {
             collapse()
@@ -131,7 +122,6 @@ final class NotchController {
     func expand(focus: Bool = true) {
         collapseWork?.cancel(); expandWork?.cancel()
         guard enabled, !model.expanded else { return }
-        panel.setFrame(frame(for: CGSize(width: model.openSize.width, height: 360)), display: false)
         model.wantsFocus = focus
         model.expanded = true
         model.refreshToday()
@@ -154,7 +144,6 @@ final class NotchController {
         model.expanded = false
         if model.pending.isEmpty && !model.streaming { model.clearReply() }
         panel.resignKey()
-        resizePanel()
     }
 
     private func installMonitors() {
@@ -162,7 +151,8 @@ final class NotchController {
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved], handler: { [weak self] e in Task { @MainActor in self?.mouseMoved() }; return e }) { monitors.append(m) }
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.model.expanded else { return }
+                guard let self else { return }
+                if !self.model.expanded { if self.pillHit.contains(NSEvent.mouseLocation) { self.expand() }; return }
                 if !self.shapeRect.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) { self.model.pending.isEmpty ? self.collapse() : () }
             }
         }) { monitors.append(m) }
@@ -179,13 +169,18 @@ final class NotchController {
         }) { monitors.append(m) }
     }
 
+    private var pillHit: NSRect {
+        let s = screen.frame, c = model.closedSize
+        return NSRect(x: s.midX - c.width / 2 - 10, y: s.maxY - c.height - 4, width: c.width + 20, height: c.height + 4)
+    }
+
     private func mouseMoved() {
         guard enabled else { return }
         let p = NSEvent.mouseLocation
+        let over = model.expanded ? shapeRect.insetBy(dx: -4, dy: -4).contains(p) : pillHit.contains(p)
+        if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if !model.expanded {
-            let s = screen.frame, c = model.closedSize
-            let hit = NSRect(x: s.midX - c.width / 2 - 10, y: s.maxY - c.height - 4, width: c.width + 20, height: c.height + 4)
-            if hit.contains(p) {
+            if pillHit.contains(p) {
                 if expandWork == nil {
                     let w = DispatchWorkItem { [weak self] in self?.expandWork = nil; self?.expand(focus: false) }
                     expandWork = w
