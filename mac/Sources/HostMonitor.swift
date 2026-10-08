@@ -8,6 +8,11 @@ struct ThreadInfo: Equatable, Identifiable {
     var busy: Bool
 }
 
+struct PendingItem: Equatable, Identifiable {
+    var id: String
+    var summary: String
+}
+
 struct HostState: Equatable {
     var online = false
     var busy = false
@@ -15,6 +20,9 @@ struct HostState: Equatable {
     var live = "idle"
     var threads: [ThreadInfo] = []
     var hasThreads = false
+    var pendingItems: [PendingItem] = []
+    var avatarShape = "circle"
+    var avatarColor = "auto"
 }
 
 final class HostMonitor {
@@ -49,7 +57,16 @@ final class HostMonitor {
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 next.online = true
                 next.busy = json["busy"] as? Bool ?? false
-                next.pending = (json["pending"] as? [Any])?.count ?? 0
+                let pend = (json["pending"] as? [[String: Any]] ?? []).compactMap { p -> PendingItem? in
+                    guard let id = p["id"] as? String else { return nil }
+                    return PendingItem(id: id, summary: p["summary"] as? String ?? "")
+                }
+                next.pendingItems = pend
+                next.pending = pend.count
+                if let av = json["avatar"] as? [String: Any] {
+                    next.avatarShape = av["shape"] as? String ?? "circle"
+                    next.avatarColor = av["color"] as? String ?? "auto"
+                }
                 next.hasThreads = json["threads"] != nil
                 next.threads = (json["threads"] as? [[String: Any]] ?? []).compactMap { t in
                     guard let id = t["id"] as? String else { return nil }

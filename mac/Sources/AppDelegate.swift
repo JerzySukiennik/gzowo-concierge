@@ -6,6 +6,7 @@ import AppKit
     private var status: StatusController!
     private let monitor = HostMonitor()
     private let model = AppModel()
+    private let notch = NotchController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyAppearance()
@@ -26,8 +27,16 @@ import AppKit
         }
         monitor.onChange = { [weak self] state in
             self?.status.update(state)
-            Task { @MainActor in self?.model.apply(state) }
+            Task { @MainActor in self?.model.apply(state); self?.notch.model.apply(state) }
         }
+        notch.model.activeThread = { [weak self] in self?.model.activeID ?? "main" }
+        notch.model.requestPoll = { [weak self] in self?.monitor.pollNow() }
+        notch.model.onFinished = { [weak self] thread in
+            Task { @MainActor in self?.windowController.web.call("openThread('\(thread)')") }
+        }
+        notch.onOpenApp = { [weak self] in self?.windowController.show() }
+        notch.onOpenLive = { [weak self] in self?.openLive() }
+        notch.start()
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
         monitor.start()
@@ -46,6 +55,11 @@ import AppKit
         UserDefaults.standard.set(sender.representedObject as? String ?? "light", forKey: "appearance")
         applyAppearance()
         windowController.web.reload()
+    }
+
+    @objc private func toggleNotch(_ sender: NSMenuItem) {
+        notch.enabled.toggle()
+        sender.state = notch.enabled ? .on : .off
     }
 
     @objc func newThread() { windowController.show(); Task { @MainActor in model.newThread() } }
@@ -141,6 +155,9 @@ import AppKit
         }
         let lookItem = NSMenuItem(title: "Wygląd", action: nil, keyEquivalent: ""); lookItem.submenu = look
         view.addItem(lookItem)
+        let dock = NSMenuItem(title: "Dock w notchu", action: #selector(toggleNotch(_:)), keyEquivalent: ""); dock.target = self
+        dock.state = notch.enabled ? .on : .off
+        view.addItem(dock)
         view.addItem(.separator())
         let reload = NSMenuItem(title: "Przeładuj", action: #selector(reload), keyEquivalent: "r"); reload.target = self
         view.addItem(reload)
