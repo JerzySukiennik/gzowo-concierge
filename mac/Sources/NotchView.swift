@@ -5,7 +5,8 @@ struct NotchView: View {
     @ObservedObject var m: NotchModel
     @FocusState private var focused: Bool
 
-    private let spring = Animation.spring(response: 0.42, dampingFraction: 0.8)
+    private let openSpring = Animation.spring(response: 0.42, dampingFraction: 0.8)
+    private let closeSpring = Animation.spring(response: 0.38, dampingFraction: 1.0)
 
     var body: some View {
         let w = m.expanded ? m.openSize.width : m.closedSize.width
@@ -13,13 +14,24 @@ struct NotchView: View {
         let shape = NotchShape(topRadius: m.expanded ? 16 : 5, bottomRadius: m.expanded ? 26 : 12)
         ZStack(alignment: .top) {
             shape.fill(Color.black)
-            if m.expanded { expanded.transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top))) } else { collapsed.transition(.opacity).contentShape(Rectangle()).onTapGesture { m.expandRequest() } }
+            collapsed
+                .frame(width: m.closedSize.width, height: m.closedSize.height, alignment: .top)
+                .opacity(m.expanded ? 0 : 1)
+                .animation(.easeOut(duration: 0.12), value: m.expanded)
+                .contentShape(Rectangle())
+                .onTapGesture { m.expandRequest() }
+                .allowsHitTesting(!m.expanded)
+            expanded
+                .frame(width: m.openSize.width, height: contentHeight, alignment: .top)
+                .opacity(m.expanded ? 1 : 0)
+                .animation(m.expanded ? .easeOut(duration: 0.22).delay(0.1) : .easeIn(duration: 0.08), value: m.expanded)
+                .allowsHitTesting(m.expanded)
         }
-        .frame(width: w, height: h)
+        .frame(width: w, height: h, alignment: .top)
         .clipShape(shape)
         .shadow(color: .black.opacity(m.expanded ? 0.4 : 0), radius: 16, y: 8)
-        .animation(spring, value: m.expanded)
-        .animation(spring, value: contentHeight)
+        .animation(m.expanded ? openSpring : closeSpring, value: m.expanded)
+        .animation(openSpring, value: contentHeight)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
     }
@@ -32,13 +44,13 @@ struct NotchView: View {
         return min(h + 44, 360)
     }
 
-    private var bot: some View {
-        NotchBot(kind: m.avatarShape, color: m.avatarColor, size: m.expanded ? 36 : 20, busy: m.busy || m.streaming, alert: !m.pending.isEmpty, look: m.look, blink: m.blink)
+    private func bot(_ size: CGFloat) -> some View {
+        NotchBot(kind: m.avatarShape, color: m.avatarColor, size: size, busy: m.busy || m.streaming, alert: !m.pending.isEmpty, look: m.look, blink: m.blink)
     }
 
     private var collapsed: some View {
         HStack(spacing: 8) {
-            bot.padding(.leading, 12)
+            bot(20).padding(.leading, 12)
             Spacer(minLength: 0)
             if !m.pending.isEmpty {
                 Text("\(m.pending.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
@@ -54,7 +66,7 @@ struct NotchView: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                bot
+                bot(36)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Concierge").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                     Text(m.status).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.55))
