@@ -379,6 +379,33 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     } catch { qr.classList.add('off'); qr.textContent = 'Kod QR niedostępny.'; }
   }
 
+  async function modelSection(my) {
+    const t = getTransport();
+    if (!t.getModel || !localHost) return;
+    let info;
+    try { info = await t.getModel(); } catch { return; }
+    if (my !== token || !info) return;
+    const s = section('Model czatu', 'spark');
+    const pair = el('div', 'pair-btns');
+    const note = el('p', 'foot', '');
+    const btns = {};
+    const paint = () => {
+      for (const k of ['gemini', 'haiku']) { btns[k].className = 'btn ' + (info.chat === k ? 'ink' : 'tonal'); btns[k].setAttribute('aria-pressed', String(info.chat === k)); }
+      note.textContent = info.haikuReady ? 'Rozmowy tekstowe idą przez wybrany model. Rozmowa na żywo zawsze używa Gemini.' : 'Claude Haiku 5.5 wymaga klucza Anthropic zapisanego na tym Macu.';
+    };
+    for (const k of ['gemini', 'haiku']) {
+      const b = el('button', 'btn tonal'); b.type = 'button'; b.textContent = info.models[k];
+      b.onclick = async () => {
+        if (info.chat === k) return;
+        try { info = await t.setModel(k); } catch (e) { toast(k === 'haiku' ? 'Najpierw zapisz klucz Anthropic.' : 'Nie udało się zmienić modelu.'); }
+        paint();
+      };
+      btns[k] = b; pair.append(b);
+    }
+    s.append(pair, note);
+    paint();
+  }
+
   async function briefSection(my) {
     const t = getTransport();
     if (!t.getBrief) return;
@@ -526,6 +553,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     sn.append(nav);
 
     if (t.getPersona) personaSection(t, my);
+    modelSection(my);
     briefSection(my);
     phoneSection();
     chatSection();

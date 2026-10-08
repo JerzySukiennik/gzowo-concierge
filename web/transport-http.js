@@ -85,6 +85,8 @@ export function createHttp(on) {
     async deleteThread(id) { await del('/api/threads/' + encodeURIComponent(id)); loadThreads(busyStreams > 0); },
     async restoreThread(id) { await post('/api/threads/' + encodeURIComponent(id) + '/restore'); loadThreads(busyStreams > 0); },
     async getToday() { return get('/api/today'); },
+    async getModel() { return get('/api/model'); },
+    async setModel(chat) { return json(await post('/api/model', { chat })); },
     async getBrief() { return get('/api/brief'); },
     async setBrief(patch) { return json(await post('/api/brief', patch)); },
     async runBrief() { return json(await post('/api/brief/run')); },

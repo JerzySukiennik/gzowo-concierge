@@ -1,5 +1,6 @@
 // Gzowo Concierge - the agent loop: Gemini function calling with per-action approval.
-import { generate, textOf } from './gemini.mjs';
+import { textOf } from './gemini.mjs';
+import { chatGenerate as generate } from './llm.mjs';
 import { store } from './db.mjs';
 import { systemPrompt } from './prompt.mjs';
 import { declarations, toolByName, policyFor } from './tools/index.mjs';

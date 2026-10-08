@@ -12,6 +12,7 @@ import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
+import { modelInfo, setChatModel, saveAnthropicKey, removeAnthropicKey } from './llm.mjs';
 import { getBrief, setBrief, runBrief, startBrief } from './brief.mjs';
 import { addSubscription, removeSubscription, vapidPublicKey } from './push.mjs';
 import { listCards, addCard, removeCard } from './vault.mjs';
@@ -99,6 +100,17 @@ async function api(req, res, url) {
     if (p === '/api/cards' && req.method === 'POST') return json(res, 200, addCard(await readBody(req)));
     const cd = p.match(/^\/api\/cards\/([\w-]+)$/);
     if (cd && req.method === 'DELETE') return json(res, 200, { ok: removeCard(cd[1]) });
+  }
+  if (p === '/api/model') {
+    if (req.method === 'POST') { try { return json(res, 200, setChatModel((await readBody(req)).chat)); } catch (err) { return json(res, 400, { error: String(err.message || err) }); } }
+    return json(res, 200, modelInfo());
+  }
+  if (p === '/api/model/key') {
+    if (!isLoopback(req)) return json(res, 403, { error: 'Klucz można zapisać tylko na Macu.' });
+    try {
+      if (req.method === 'DELETE') return json(res, 200, removeAnthropicKey());
+      return json(res, 200, await saveAnthropicKey(await readBody(req)));
+    } catch (err) { return json(res, 400, { error: String(err.message || err) }); }
   }
   if (p === '/api/brief') {
     if (req.method === 'POST') setBrief(await readBody(req));
