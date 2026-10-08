@@ -11,7 +11,7 @@ struct NotchView: View {
     var body: some View {
         let w = m.expanded ? m.openSize.width : m.closedSize.width
         let h = m.expanded ? contentHeight : m.closedSize.height
-        let shape = NotchShape(topRadius: m.expanded ? 16 : 5, bottomRadius: m.expanded ? 26 : 9)
+        let shape = NotchShape(topRadius: m.expanded ? 16 : 5, bottomRadius: m.expanded ? 26 : 8)
         ZStack(alignment: .top) {
             shape.fill(Color.black)
             collapsed
@@ -44,7 +44,7 @@ struct NotchView: View {
 
     private var collapsed: some View {
         HStack(spacing: 8) {
-            bot(17).padding(.leading, 10)
+            bot(15).padding(.leading, 10)
             Spacer(minLength: 0)
             if !m.pending.isEmpty {
                 Text("\(m.pending.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(.black)

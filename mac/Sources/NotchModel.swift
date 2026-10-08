@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var expanded = false
-    @Published var closedSize = CGSize(width: 150, height: 30)
+    @Published var closedSize = CGSize(width: 190, height: 24)
     @Published var openSize = CGSize(width: 580, height: 196)
     @Published var text = ""
     @Published var reply = ""
