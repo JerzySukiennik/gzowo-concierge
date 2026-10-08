@@ -80,20 +80,12 @@ final class NotchController {
     }
 
     private var shapeSize: CGSize {
-        model.expanded ? CGSize(width: model.openSize.width, height: currentOpenHeight) : model.closedSize
-    }
-
-    private var currentOpenHeight: CGFloat {
-        var h: CGFloat = 112
-        if !model.pending.isEmpty { h += CGFloat(min(model.pending.count, 2)) * 74 }
-        if !model.reply.isEmpty || model.streaming || !model.errorText.isEmpty { h += min(CGFloat(max(model.reply.count, 40)) / 62 * 22 + 34, 110) }
-        else if !model.nextEvent.isEmpty { h += 24 }
-        return min(h + 44, 360)
+        model.expanded ? CGSize(width: model.openSize.width, height: model.openHeight) : model.closedSize
     }
 
     private var panelFrame: NSRect {
         let s = screen.frame
-        let w = model.openSize.width + margin * 2, h = 360 + margin
+        let w = model.openSize.width + margin * 2, h = NotchModel.maxHeight + margin
         return NSRect(x: s.midX - w / 2, y: s.maxY - h, width: w, height: h)
     }
 
@@ -122,6 +114,7 @@ final class NotchController {
     func expand(focus: Bool = true) {
         collapseWork?.cancel(); expandWork?.cancel()
         guard enabled, !model.expanded else { return }
+        if !model.streaming && !model.reply.isEmpty && model.replyThread != model.activeThread() { model.clearReply() }
         model.wantsFocus = focus
         model.expanded = true
         model.refreshToday()
@@ -142,7 +135,6 @@ final class NotchController {
         guard model.expanded else { return }
         blinkTimer?.invalidate(); blinkTimer = nil
         model.expanded = false
-        if model.pending.isEmpty && !model.streaming { model.clearReply() }
         panel.resignKey()
     }
 
@@ -184,7 +176,7 @@ final class NotchController {
                 if expandWork == nil {
                     let w = DispatchWorkItem { [weak self] in self?.expandWork = nil; self?.expand(focus: false) }
                     expandWork = w
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: w)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: w)
                 }
             } else { expandWork?.cancel(); expandWork = nil }
         } else {

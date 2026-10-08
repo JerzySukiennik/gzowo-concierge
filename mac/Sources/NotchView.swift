@@ -5,7 +5,7 @@ struct NotchView: View {
     @ObservedObject var m: NotchModel
     @FocusState private var focused: Bool
 
-    private let openSpring = Animation.spring(response: 0.42, dampingFraction: 0.8)
+    private let openSpring = Animation.spring(response: 0.36, dampingFraction: 0.82)
     private let closeSpring = Animation.spring(response: 0.38, dampingFraction: 1.0)
 
     var body: some View {
@@ -36,13 +36,7 @@ struct NotchView: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private var contentHeight: CGFloat {
-        var h: CGFloat = 112
-        if !m.pending.isEmpty { h += CGFloat(min(m.pending.count, 2)) * 74 }
-        if !m.reply.isEmpty || m.streaming || !m.errorText.isEmpty { h += min(CGFloat(max(m.reply.count, 40)) / 62 * 22 + 34, 110) }
-        else if !m.nextEvent.isEmpty { h += 24 }
-        return min(h + 44, 360)
-    }
+    private var contentHeight: CGFloat { m.openHeight }
 
     private func bot(_ size: CGFloat) -> some View {
         NotchBot(kind: m.avatarShape, color: m.avatarColor, size: size, busy: m.busy || m.streaming, alert: !m.pending.isEmpty, look: m.look, blink: m.blink)
@@ -125,12 +119,13 @@ struct NotchView: View {
             }
             ScrollView(showsIndicators: false) {
                 if m.errorText.isEmpty {
-                    Text(m.reply.isEmpty ? "…" : m.reply).font(.system(size: 13)).foregroundStyle(.white).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(NotchText.attributed(m.replyShown)).font(.system(size: 13)).lineSpacing(2).foregroundStyle(.white).tint(.white).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 4)
                 } else {
                     Text(m.errorText).font(.system(size: 12.5)).foregroundStyle(Color(red: 1, green: 0.42, blue: 0.4)).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .frame(maxHeight: 74)
+            .frame(height: m.replyHeight)
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.93), .init(color: .black.opacity(m.replyHeight >= NotchModel.replyMax ? 0 : 1), location: 1)], startPoint: .top, endPoint: .bottom))
         }
     }
 

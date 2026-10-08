@@ -21,6 +21,7 @@ final class NotchModel: ObservableObject {
     @Published var look = CGSize.zero
     @Published var blink = false
     var wantsFocus = false
+    var replyThread = ""
 
     var activeThread: () -> String = { "main" }
     var onFinished: (String) -> Void = { _ in }
@@ -31,7 +32,29 @@ final class NotchModel: ObservableObject {
     private var streamTask: Task<Void, Never>?
     private var lastToday: Date = .distantPast
 
-    var sticky: Bool { !text.isEmpty || streaming || !pending.isEmpty || !reply.isEmpty }
+    static let maxHeight: CGFloat = 660
+    static let replyMax: CGFloat = 440
+
+    var replyShown: String { errorText.isEmpty ? (reply.isEmpty ? "…" : reply) : errorText }
+
+    var replyHeight: CGFloat {
+        let w = openSize.width - 52
+        let text = errorText.isEmpty ? NotchText.plain(replyShown) : errorText
+        let font = NSFont.systemFont(ofSize: errorText.isEmpty ? 13 : 12.5)
+        let r = (text as NSString).boundingRect(with: CGSize(width: w, height: 6000), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font])
+        let lines = max(1, Int((r.height / (font.ascender - font.descender + font.leading)).rounded()))
+        return min(ceil(r.height) + CGFloat(lines) * 2 + 10, Self.replyMax)
+    }
+
+    var openHeight: CGFloat {
+        var h: CGFloat = 156
+        if !pending.isEmpty { h += CGFloat(min(pending.count, 2)) * 74 }
+        if !reply.isEmpty || streaming || !errorText.isEmpty { h = 134 + replyHeight + (steps.isEmpty ? 0 : 28) + CGFloat(min(pending.count, 2)) * 74 }
+        else if !nextEvent.isEmpty { h += 24 }
+        return min(h, Self.maxHeight)
+    }
+
+    var sticky: Bool { !text.isEmpty || streaming || !pending.isEmpty }
 
     var status: String {
         if !online { return "Host nie odpowiada" }
@@ -56,6 +79,7 @@ final class NotchModel: ObservableObject {
         reply = ""; steps = []; errorText = ""
         streaming = true
         let thread = activeThread()
+        replyThread = thread
         streamTask = Task { [weak self] in
             await self?.stream(msg, thread: thread)
         }
