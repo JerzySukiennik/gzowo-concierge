@@ -12,6 +12,8 @@ import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
+import { getBrief, setBrief, runBrief, startBrief } from './brief.mjs';
+import { addSubscription, removeSubscription, vapidPublicKey } from './push.mjs';
 import { listCards, addCard, removeCard } from './vault.mjs';
 import { listConnectors, connect as connectConnector, setup as setupConnector, disconnect as disconnectConnector, policyLabels, googleCallback } from './connectors/index.mjs';
 
@@ -98,6 +100,16 @@ async function api(req, res, url) {
     const cd = p.match(/^\/api\/cards\/([\w-]+)$/);
     if (cd && req.method === 'DELETE') return json(res, 200, { ok: removeCard(cd[1]) });
   }
+  if (p === '/api/brief') {
+    if (req.method === 'POST') setBrief(await readBody(req));
+    return json(res, 200, { ...getBrief(), vapid: vapidPublicKey() });
+  }
+  if (p === '/api/brief/run' && req.method === 'POST') return json(res, 200, await runBrief({ manual: true }));
+  if (p === '/api/push/subscribe' && req.method === 'POST') {
+    const b = await readBody(req);
+    try { addSubscription(b.sub, req.headers['user-agent']); return json(res, 200, { ok: true, brief: getBrief() }); } catch (err) { return json(res, 400, { error: String(err.message || err) }); }
+  }
+  if (p === '/api/push/unsubscribe' && req.method === 'POST') { removeSubscription(String((await readBody(req)).endpoint || '')); return json(res, 200, { ok: true, brief: getBrief() }); }
   if (p === '/api/clear' && req.method === 'POST') { clearThread(validThread((await readBody(req)).thread)); return json(res, 200, { ok: true }); }
   return json(res, 404, { error: 'not found' });
 }
@@ -137,4 +149,4 @@ server.on('upgrade', (req, socket) => {
   handleLiveUpgrade(req, socket);
 });
 
-server.listen(config.port, config.host, () => { console.log(`Gzowo Concierge on http://localhost:${config.port}`); startRelay(); });
+server.listen(config.port, config.host, () => { console.log(`Gzowo Concierge on http://localhost:${config.port}`); startRelay(); startBrief(); });

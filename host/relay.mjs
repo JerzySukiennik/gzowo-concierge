@@ -9,6 +9,8 @@ import { mintLiveToken } from './live.mjs';
 import { live } from './live-state.mjs';
 import { createAuth } from './fbauth.mjs';
 import { connectorSummary } from './connectors/index.mjs';
+import { setBrief, runBrief } from './brief.mjs';
+import { addSubscription, removeSubscription } from './push.mjs';
 
 const SV = { '.sv': 'timestamp' };
 const TTL_MS = 10 * 60 * 1000;
@@ -58,7 +60,7 @@ export function startRelay() {
     const cs = connectorSummary();
     const labels = {}; for (const [k, v] of Object.entries(s.labels || {})) labels[k.replace(/\./g, '_')] = v;
     const threads = {}; for (const t of s.threads) threads[t.id] = { title: t.title, updated: t.updated, busy: !!t.busy };
-    return { busy: s.busy, policies, facts, pending, labels, connectors: cs.states, connectorMeta: cs.meta, threads, avatar: s.avatar };
+    return { busy: s.busy, policies, facts, pending, labels, connectors: cs.states, connectorMeta: cs.meta, threads, avatar: s.avatar, brief: s.brief, vapid: s.vapid };
   };
   let statePending = false;
   const pushState = () => {
@@ -138,6 +140,10 @@ export function startRelay() {
       else if (m.type === 'thread-delete') deleteThread(validThread(m.thread));
       else if (m.type === 'thread-restore') restoreThread(validThread(m.thread));
       else if (m.type === 'today-refresh') refreshToday();
+      else if (m.type === 'brief-settings') setBrief(m);
+      else if (m.type === 'brief-run') runBrief({ manual: true });
+      else if (m.type === 'push-sub' && m.sub) { try { addSubscription(m.sub, m.ua); bus.emit('state'); } catch {} }
+      else if (m.type === 'push-unsub' && typeof m.endpoint === 'string') { removeSubscription(m.endpoint); bus.emit('state'); }
       else if (m.type === 'avatar') setAvatar(String(m.shape || ''), String(m.color || ''));
       else if (m.type === 'live-token' && ID.test(m.cid || '')) liveToken(m);
       else if (m.type === 'live-tool' && ID.test(m.cid || '') && ID.test(m.callId || '')) liveTool(m);

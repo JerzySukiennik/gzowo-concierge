@@ -512,6 +512,12 @@ async function boot() {
   const acct = transport.account && transport.account.email;
   $('sideAcct').textContent = acct || (transport.mode === 'local' ? 'Na tym Macu' : '');
   await transport.start();
+  const wantThread = qs.get('thread');
+  if (wantThread) { history.replaceState(null, '', location.pathname); whenReady(() => switchThread(wantThread)); }
+  if ('serviceWorker' in navigator && !isShell() && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'open-thread' && e.data.thread) whenReady(() => switchThread(String(e.data.thread))); });
+  }
   threadsUI.set(state.threads);
   threadsUI.setActive(tid());
   updateTitle();

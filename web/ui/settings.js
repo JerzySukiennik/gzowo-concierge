@@ -32,6 +32,7 @@ function loadScript(src) {
 
 const ORDER = Object.keys(LABELS);
 const rank = a => { const i = ORDER.indexOf(a); return i < 0 ? 99 : i; };
+const isShellApp = () => document.documentElement.dataset.shell === 'mac';
 const localHost = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 
 function cardError(msg) {
@@ -378,6 +379,81 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     } catch { qr.classList.add('off'); qr.textContent = 'Kod QR niedostępny.'; }
   }
 
+  async function briefSection(my) {
+    const t = getTransport();
+    if (!t.getBrief) return;
+    const s = section('Poranny brief', 'sun');
+    const list = el('div', 'list');
+    s.append(list);
+    let cfg;
+    try { cfg = await t.getBrief(); } catch { cfg = null; }
+    if (my !== token) return;
+    if (!cfg) { s.append(el('p', 'foot', 'Brief będzie dostępny po połączeniu z Macem.')); return; }
+    const row = (main, sub) => { const r = el('div', 'item'); const x = el('div', 'item-t', '<span class="i-main"></span><span class="i-sub"></span>'); x.querySelector('.i-main').textContent = main; x.querySelector('.i-sub').textContent = sub; r.append(x); return r; };
+    const save = patch => { cfg = { ...cfg, ...patch }; t.setBrief(patch).then(c => { if (c) cfg = { ...cfg, ...c }; }).catch(() => toast('Nie udało się zapisać.')); };
+
+    const on = row('Codziennie rano', 'Plan dnia, pogoda i terminy w osobnej rozmowie');
+    on.append(makeSwitch('Poranny brief', !!cfg.enabled, v => { save({ enabled: v }); timeRow.hidden = wk.hidden = !v; }));
+    const timeRow = row('Godzina', 'O której ma przyjść');
+    const time = el('input', 'time-in'); time.type = 'time'; time.value = cfg.time || '07:00'; time.setAttribute('aria-label', 'Godzina briefu');
+    time.onchange = () => { if (time.value) save({ time: time.value }); };
+    timeRow.append(time);
+    const wk = row('Także w weekendy', 'Domyślnie tylko w dni robocze');
+    wk.append(makeSwitch('Brief w weekendy', !!cfg.weekends, v => save({ weekends: v })));
+    timeRow.hidden = wk.hidden = !cfg.enabled;
+    list.append(on, timeRow, wk);
+
+    const now = el('button', 'pill block', icon('sun', 18) + '<span>Wyślij brief teraz</span>');
+    now.type = 'button';
+    now.onclick = async () => {
+      now.disabled = true; now.querySelector('span').textContent = 'Przygotowuję…';
+      try { const r = await t.runBrief(); now.querySelector('span').textContent = r && r.ok === false ? 'Nie udało się' : (r && r.async ? 'Wysłane do Maca' : 'Gotowe'); }
+      catch { now.querySelector('span').textContent = 'Nie udało się'; }
+      setTimeout(() => { now.disabled = false; now.querySelector('span').textContent = 'Wyślij brief teraz'; }, 2400);
+    };
+    s.append(now);
+
+    const mac = isShellApp();
+    const note = el('p', 'foot', mac ? 'Na Macu powiadomienie pokaże aplikacja Concierge.' : '');
+    if (!mac) {
+      const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+      const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      const ios = /iPhone|iPad/.test(navigator.userAgent);
+      const btn = el('button', 'pill block', icon('bell', 18) + '<span>Włącz powiadomienia na tym urządzeniu</span>');
+      btn.type = 'button';
+      const label = txt => { btn.querySelector('span').textContent = txt; };
+      let reg = null, sub = null;
+      const refresh = async () => {
+        try { reg = await navigator.serviceWorker.ready; sub = await reg.pushManager.getSubscription(); } catch { sub = null; }
+        label(sub ? 'Wyłącz powiadomienia na tym urządzeniu' : 'Włącz powiadomienia na tym urządzeniu');
+      };
+      if (!supported || (ios && !standalone)) {
+        note.textContent = ios && !standalone ? 'Na iPhonie dodaj stronę do ekranu początkowego (Udostępnij, Do ekranu początkowego) i otwórz ją stamtąd, wtedy włączysz powiadomienia.' : 'Ta przeglądarka nie obsługuje powiadomień push.';
+      } else {
+        s.append(btn); refresh();
+        btn.onclick = async () => {
+          btn.disabled = true;
+          try {
+            if (sub) { const ep = sub.endpoint; await sub.unsubscribe(); await t.pushUnsubscribe(ep); sub = null; label('Włącz powiadomienia na tym urządzeniu'); }
+            else {
+              const perm = await Notification.requestPermission();
+              if (perm !== 'granted') { note.textContent = 'Powiadomienia są zablokowane. Odblokuj je w ustawieniach przeglądarki lub iPhone\'a.'; return; }
+              const cur = await t.getBrief();
+              const key = Uint8Array.from(atob((cur.vapid || '').replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+              reg = await navigator.serviceWorker.ready;
+              sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+              await t.pushSubscribe(sub.toJSON());
+              label('Wyłącz powiadomienia na tym urządzeniu');
+              note.textContent = 'Gotowe. Rano dostaniesz powiadomienie.';
+            }
+          } catch (e) { note.textContent = 'Nie udało się włączyć powiadomień.'; }
+          finally { btn.disabled = false; }
+        };
+      }
+    }
+    s.append(note);
+  }
+
   function accountSection() {
     const acc = getTransport().account;
     if (!acc) return;
@@ -450,6 +526,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     sn.append(nav);
 
     if (t.getPersona) personaSection(t, my);
+    briefSection(my);
     phoneSection();
     chatSection();
     accountSection();

@@ -23,6 +23,9 @@ struct HostState: Equatable {
     var pendingItems: [PendingItem] = []
     var avatarShape = "circle"
     var avatarColor = "auto"
+    var briefTs = 0.0
+    var briefText = ""
+    var briefThread = "poranny-brief"
 }
 
 final class HostMonitor {
@@ -66,6 +69,13 @@ final class HostMonitor {
                 if let av = json["avatar"] as? [String: Any] {
                     next.avatarShape = av["shape"] as? String ?? "circle"
                     next.avatarColor = av["color"] as? String ?? "auto"
+                }
+                if let b = json["brief"] as? [String: Any] {
+                    next.briefThread = b["thread"] as? String ?? "poranny-brief"
+                    if let last = b["last"] as? [String: Any] {
+                        next.briefTs = last["ts"] as? Double ?? 0
+                        next.briefText = last["text"] as? String ?? ""
+                    }
                 }
                 next.hasThreads = json["threads"] != nil
                 next.threads = (json["threads"] as? [[String: Any]] ?? []).compactMap { t in

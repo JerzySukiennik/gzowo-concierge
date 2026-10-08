@@ -8,7 +8,7 @@ export async function createRelay(on) {
   const { ref, push, onValue, onChildAdded, query, limitToLast, serverTimestamp } = dbMod;
   const root = 'u/main';
   let offset = 0, hostTs = 0, link = true, threadId = getThreadId(), feedOff = null;
-  let threads = {}, today = null, connList = [], labels = {};
+  let threads = {}, today = null, connList = [], labels = {}, brief = null, vapid = '';
 
   const send = msg => push(ref(d, root + '/inbox'), { ...msg, ts: serverTimestamp() });
   const hostOnline = () => hostTs > 0 && Date.now() + offset - hostTs < 70000;
@@ -32,6 +32,7 @@ export async function createRelay(on) {
     labels = v.labels || {};
     const meta = v.connectorMeta || {}, st = v.connectors || {};
     connList = Object.keys({ ...meta, ...st }).map(id => ({ id, name: (meta[id] || {}).name || id, icon: (meta[id] || {}).icon || id, category: (meta[id] || {}).category || 'Inne', state: st[id] || 'available', capabilities: [], tools: [] }));
+    brief = v.brief || brief; vapid = v.vapid || vapid;
     try { today = v.todayJson ? JSON.parse(v.todayJson) : null; } catch { today = null; }
     on.state({ avatar: v.avatar || undefined, busy: !!v.busy, policies, facts: v.facts || {}, pending: v.pending || {}, online: link && hostOnline(), link, threads: { ...threads }, labels, connectors: st, today });
   });
@@ -100,6 +101,11 @@ export async function createRelay(on) {
     async restoreThread(id) { send({ type: 'thread-restore', thread: id }); },
     async getToday() { return today; },
     setAvatar(a) { send({ type: 'avatar', shape: a.shape, color: a.color }); },
+    async getBrief() { return brief ? { ...brief, vapid } : null; },
+    async setBrief(patch) { send({ type: 'brief-settings', ...patch }); brief = { ...(brief || {}), ...patch }; return { ...brief, vapid }; },
+    async runBrief() { send({ type: 'brief-run' }); return { ok: true, async: true }; },
+    async pushSubscribe(sub) { send({ type: 'push-sub', sub, ua: navigator.userAgent.slice(0, 100) }); return { ok: true }; },
+    async pushUnsubscribe(endpoint) { send({ type: 'push-unsub', endpoint }); return { ok: true }; },
     async listConnectors() { return { connectors: connList, labels }; },
   };
 }

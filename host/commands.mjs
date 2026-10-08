@@ -7,6 +7,8 @@ import { store } from './db.mjs';
 import { listPolicies, setPolicy } from './tools/index.mjs';
 import { policyLabels } from './connectors/index.mjs';
 import { live } from './live-state.mjs';
+import { getBrief, briefBus } from './brief.mjs';
+import { vapidPublicKey } from './push.mjs';
 
 export const THREAD = 'main';
 
@@ -51,10 +53,13 @@ export function snapshot() {
     pending: store.pendingApprovals().map(a => ({ id: a.id, summary: a.summary, thread: a.thread })),
     threads: threadList(),
     avatar: getAvatar(),
+    brief: getBrief(),
+    vapid: vapidPublicKey(),
   };
 }
 
 const changed = () => bus.emit('state');
+briefBus.on('change', changed);
 
 function track(rid, send, thread) {
   return e => { const ev = { ...e, rid, thread }; send(ev); bus.emit('event', ev); };
@@ -90,7 +95,7 @@ export function chat(text, send = () => {}, { cid, thread = THREAD } = {}) {
   thread = validThread(thread);
   store.ensureThread(thread);
   const rid = cid || crypto.randomUUID();
-  bus.emit('event', { type: 'user', text, rid, cid: rid, thread });
+  if (!text.startsWith('[System:')) bus.emit('event', { type: 'user', text, rid, cid: rid, thread });
   const emit = track(rid, send, thread);
   return queue(thread, () => tracked(thread, () => run(thread, text, emit)))
     .catch(err => emit({ type: 'error', message: String(err.message || err) }))

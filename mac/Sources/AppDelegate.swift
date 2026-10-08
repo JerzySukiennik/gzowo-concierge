@@ -7,6 +7,7 @@ import AppKit
     private let monitor = HostMonitor()
     private let model = AppModel()
     private let notch = NotchController()
+    private let briefNotifier = BriefNotifier()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyAppearance()
@@ -27,7 +28,7 @@ import AppKit
         }
         monitor.onChange = { [weak self] state in
             self?.status.update(state)
-            Task { @MainActor in self?.model.apply(state); self?.notch.model.apply(state) }
+            Task { @MainActor in self?.model.apply(state); self?.notch.model.apply(state); self?.briefNotifier.check(ts: state.briefTs, text: state.briefText, thread: state.briefThread) }
         }
         notch.model.activeThread = { [weak self] in self?.model.activeID ?? "main" }
         notch.model.requestPoll = { [weak self] in self?.monitor.pollNow() }
@@ -36,6 +37,11 @@ import AppKit
         }
         notch.onOpenApp = { [weak self] in self?.windowController.show() }
         notch.onOpenLive = { [weak self] in self?.openLive() }
+        briefNotifier.onOpen = { [weak self] thread in
+            self?.windowController.show()
+            self?.model.select(thread)
+        }
+        briefNotifier.start()
         notch.start()
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
