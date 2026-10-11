@@ -68,7 +68,18 @@ final class NotchController {
     var onOpenApp: () -> Void = {}
     var onOpenLive: () -> Void = {}
 
-    private var screen: NSScreen { NSScreen.screens.first ?? NSScreen.main ?? NSScreen.screens[0] }
+    private var targetScreen: NSScreen?
+    private var screen: NSScreen {
+        if let t = targetScreen, NSScreen.screens.contains(t) { return t }
+        return NSScreen.screens.first ?? NSScreen.main ?? NSScreen.screens[0]
+    }
+
+    private func follow(_ s: NSScreen) {
+        targetScreen = s
+        layoutForScreen()
+        panel.ignoresMouseEvents = true
+        panel.setFrame(panelFrame, display: true)
+    }
 
     private func layoutForScreen() {
         let s = screen
@@ -173,6 +184,8 @@ final class NotchController {
     private func mouseMoved() {
         guard enabled else { return }
         let p = NSEvent.mouseLocation
+        if !model.expanded && !model.agent.visible && model.dictation == .idle,
+           let s = NSScreen.screens.first(where: { $0.frame.contains(p) }), s != screen { follow(s) }
         let over = model.expanded ? shapeRect.insetBy(dx: -4, dy: -4).contains(p) : pillHit.contains(p)
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if !model.expanded {
