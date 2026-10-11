@@ -85,7 +85,7 @@ final class NotchModel: ObservableObject {
         agentHistory.isEmpty ? 0 : 26 + CGFloat(min(3, agentHistory.count)) * 46 + (agentHistory.count > 3 ? 18 : 0)
     }
 
-    var agentSize: CGSize { CGSize(width: 400, height: agent.ask != nil ? 108 : (agent.finished ? 58 : 54)) }
+    var agentSize: CGSize { CGSize(width: agent.ask != nil ? 380 : 330, height: agent.ask != nil ? 84 : (agent.finished ? 34 : 38)) }
 
     var pillExtra: CGFloat {
         switch dictation {

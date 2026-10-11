@@ -54,6 +54,11 @@ import AppKit
         notch.model.answerAgent = { [weak self] yes in self?.screenAgent.answer(yes) }
         dictation.onAgentTask = { [weak self] task in self?.screenAgent.run(task: task) }
         notch.start()
+        if let fake = ProcessInfo.processInfo.environment["CONCIERGE_FAKE_AGENT"] {
+            notch.model.agent = fake == "finished"
+                ? AgentState(finished: true, ok: true, summary: "Sformatowałem nagłówek: pogrubiłem tylko tytuł dokumentu i odznaczyłem tekst.")
+                : AgentState(active: true, step: 2, total: 5, narration: "Wpisuję imię i nazwisko")
+        }
         touchBarAssistant.start()
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }

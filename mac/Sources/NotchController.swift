@@ -127,6 +127,7 @@ final class NotchController {
         collapseWork?.cancel(); expandWork?.cancel()
         guard enabled, !model.expanded else { return }
         if !model.streaming && !model.reply.isEmpty && model.replyThread != model.activeThread() { model.clearReply() }
+        if model.agent.finished && !model.agent.active { model.agent = AgentState() }
         model.wantsFocus = focus
         model.expanded = true
         model.refreshToday()
@@ -156,7 +157,7 @@ final class NotchController {
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if !self.model.expanded { if !self.model.agent.visible && self.pillHit.contains(NSEvent.mouseLocation) { self.onOpenApp() }; return }
+                if !self.model.expanded { if !self.model.agent.active && self.pillHit.contains(NSEvent.mouseLocation) { if self.model.agent.finished { self.expand() } else { self.onOpenApp() } }; return }
                 if !self.shapeRect.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) { self.model.pending.isEmpty ? self.collapse() : () }
             }
         }) { monitors.append(m) }
@@ -189,7 +190,7 @@ final class NotchController {
         let over = model.expanded ? shapeRect.insetBy(dx: -4, dy: -4).contains(p) : pillHit.contains(p)
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if !model.expanded {
-            if pillHit.contains(p) && !model.agent.visible {
+            if pillHit.contains(p) && !model.agent.active {
                 if expandWork == nil {
                     let w = DispatchWorkItem { [weak self] in self?.expandWork = nil; self?.expand(focus: false) }
                     expandWork = w

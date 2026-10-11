@@ -13,7 +13,7 @@ struct NotchView: View {
         let agentOn = m.agent.visible && !m.expanded
         let w = m.expanded ? m.openSize.width : (agentOn ? m.agentSize.width : pillW)
         let h = m.expanded ? contentHeight : (agentOn ? m.agentSize.height : m.closedSize.height)
-        let shape = NotchShape(topRadius: m.expanded ? 16 : (agentOn ? 12 : 5), bottomRadius: m.expanded ? 26 : (agentOn ? 22 : 8))
+        let shape = NotchShape(topRadius: m.expanded ? 16 : (agentOn ? 8 : 5), bottomRadius: m.expanded ? 26 : (agentOn ? 16 : 8))
         ZStack(alignment: .top) {
             shape.fill(Color.black)
             collapsed
@@ -27,6 +27,8 @@ struct NotchView: View {
                 .frame(width: m.agentSize.width, height: m.agentSize.height, alignment: .top)
                 .opacity(agentOn ? 1 : 0)
                 .animation(.easeOut(duration: 0.18), value: agentOn)
+                .contentShape(Rectangle())
+                .onTapGesture { if m.agent.finished { m.expandRequest() } }
                 .allowsHitTesting(agentOn)
             expanded
                 .frame(width: m.openSize.width, height: contentHeight, alignment: .top)
@@ -102,46 +104,44 @@ struct NotchView: View {
     }
 
     private var agentBar: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 9) {
-                bot(18)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                bot(16)
                 if m.agent.finished {
-                    Image(systemName: m.agent.ok ? "checkmark" : "exclamationmark").font(.system(size: 11, weight: .bold)).foregroundStyle(m.agent.ok ? Color.white : Color(red: 1, green: 0.45, blue: 0.43))
-                    Text(m.agent.summary).font(.system(size: 12)).foregroundStyle(.white).lineLimit(2)
+                    Image(systemName: m.agent.ok ? "checkmark" : "exclamationmark").font(.system(size: 10, weight: .bold)).foregroundStyle(m.agent.ok ? Color.white : Color(red: 1, green: 0.45, blue: 0.43))
+                    Text(m.agent.summary).font(.system(size: 11.5)).foregroundStyle(.white).lineLimit(1).truncationMode(.tail)
                 } else {
-                    VStack(alignment: .leading, spacing: 1) {
-                        if m.agent.total > 0 { Text("KROK \(max(m.agent.step, 1)) Z \(m.agent.total)").font(.system(size: 9.5, weight: .semibold)).tracking(0.6).foregroundStyle(.white.opacity(0.55)) }
-                        Text(m.agent.narration).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white).lineLimit(1)
-                    }
+                    if m.agent.total > 0 { Text("\(max(m.agent.step, 1))/\(m.agent.total)").font(.system(size: 10, weight: .semibold).monospacedDigit()).foregroundStyle(.white.opacity(0.5)) }
+                    Text(m.agent.narration).font(.system(size: 12, weight: .medium)).foregroundStyle(.white).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if m.agent.active {
                     Button { m.stopAgent() } label: {
-                        Image(systemName: "xmark").font(.system(size: 9.5, weight: .bold)).foregroundStyle(.white).frame(width: 22, height: 22).background(Color.white.opacity(0.14), in: Circle())
+                        Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(.white).frame(width: 18, height: 18).background(Color.white.opacity(0.14), in: Circle())
                     }
                     .buttonStyle(.plain).help("Zatrzymaj (Esc)").accessibilityLabel("Zatrzymaj agenta")
                 }
             }
             if m.agent.active && m.agent.total > 0 {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     ForEach(0..<m.agent.total, id: \.self) { i in
-                        Capsule().fill(Color.white.opacity(i < max(m.agent.step, 1) ? 0.95 : 0.2)).frame(height: 3)
+                        Capsule().fill(Color.white.opacity(i < max(m.agent.step, 1) ? 0.9 : 0.18)).frame(height: 2)
                     }
                 }
             }
             if let q = m.agent.ask {
-                HStack(spacing: 10) {
-                    Text(q).font(.system(size: 12)).foregroundStyle(.white).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 8) {
+                    Text(q).font(.system(size: 11.5)).foregroundStyle(.white).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                     Button("Nie") { m.answerAgent(false) }
-                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 13).padding(.vertical, 6).background(Color.white.opacity(0.14), in: Capsule())
+                        .buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 5).background(Color.white.opacity(0.14), in: Capsule())
                     Button("Tak") { m.answerAgent(true) }
-                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 15).padding(.vertical, 6).background(Color.white, in: Capsule())
+                        .buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.black)
+                        .padding(.horizontal, 14).padding(.vertical, 5).background(Color.white, in: Capsule())
                 }
             }
         }
-        .padding(.horizontal, 20).padding(.top, 9)
+        .padding(.horizontal, 16).padding(.top, 5)
     }
 
     @ViewBuilder

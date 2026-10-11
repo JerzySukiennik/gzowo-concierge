@@ -236,7 +236,7 @@ final class ScreenAgentController {
         hud.endAgentRun(ok: ok, summary: summary)
         hud.agent = AgentState(finished: true, ok: ok, summary: summary)
         NSSound(named: ok ? "Pop" : "Basso")?.play()
-        scheduleReset(ok ? 7 : 6)
+        scheduleReset(ok ? 12 : 8)
     }
 
     private func scheduleReset(_ seconds: Double) {
