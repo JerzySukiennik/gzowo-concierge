@@ -37,7 +37,7 @@ export function createFace(host, opts = {}) {
   const canvas = host.tagName === 'CANVAS' ? host : (() => { const c = document.createElement('canvas'); c.style.cssText = 'display:block;width:100%;height:100%'; host.appendChild(c); return c; })();
   const ctx = canvas.getContext('2d');
   const mq = matchMedia('(prefers-reduced-motion: reduce)');
-  const dark = matchMedia('(prefers-color-scheme: dark)');
+  const dark = { matches: false, addEventListener() {}, removeEventListener() {} };
   let reduce = opts.reduceMotion ?? mq.matches;
 
   const X = new Float64Array(N), V = new Float64Array(N), T = new Float64Array(N), K = new Float64Array(N), C = new Float64Array(N);

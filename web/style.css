@@ -1,6 +1,6 @@
 /* Gzowo Concierge - neutral graphite Liquid Glass UI: cool gray glass over a calm monochrome wallpaper in browsers, transparent fills in the Mac shell, graphite motion as the only accent, red for errors. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --shell-top: 0px;
   --top: calc(var(--shell-top) + env(safe-area-inset-top));
   --bg: #eceef1;
@@ -39,43 +39,11 @@
     --spring-b: linear(0, 0.097, 0.302, 0.523, 0.713, 0.856, 0.951, 1.006, 1.031, 1.038, 1.035, 1.027, 1.019, 1.012, 1.006, 1.002, 1, 0.999, 1);
   }
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #121316;
-    --wall-a: #16171b; --wall-b: #121316; --wall-c: #0f1013;
-    --w1: rgba(255, 255, 255, .075); --w2: rgba(120, 126, 138, .16); --w3: rgba(255, 255, 255, .05);
-    --ink: #f2f3f5; --on-ink: #131417; --dim: #a3a7b0; --faint: #8a8e98;
-    --live: #d5d8de; --live-ink: #e6e8ec; --err: #ff6b62;
-    --g1: rgba(255, 255, 255, .125); --g2: rgba(255, 255, 255, .05);
-    --gt1: rgba(34, 36, 42, .94); --gt2: rgba(25, 27, 32, .92);
-    --g-edge: rgba(0, 0, 0, .55);
-    --rim-a: rgba(255, 255, 255, .5); --rim-b: rgba(255, 255, 255, .05); --rim-c: rgba(255, 255, 255, .3);
-    --hi: rgba(255, 255, 255, .2); --lo: rgba(255, 255, 255, .03);
-    --sa: .2;
-    --sh-s: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 22px -10px rgba(0, 0, 0, .6);
-    --sh-m: 0 2px 6px rgba(0, 0, 0, .4), 0 18px 44px -16px rgba(0, 0, 0, .7);
-    --sh-l: 0 4px 14px rgba(0, 0, 0, .45), 0 30px 80px -20px rgba(0, 0, 0, .8);
-    --tint: rgba(255, 255, 255, .07); --tint-2: rgba(255, 255, 255, .12); --hair: rgba(255, 255, 255, .09);
-    --list: rgba(255, 255, 255, .06);
-    --veil: rgba(8, 9, 12, .3); --scrim: rgba(0, 0, 0, .5);
-    --goo-top: #cfd3da; --goo-bot: #8f95a0; --goo-a: .15; --goo-sh: rgba(0, 0, 0, .55);
-    --ink-grad: linear-gradient(180deg, #ffffff, #d3d6dc);
-    --track-off: rgba(255, 255, 255, .2);
-    --gl1: rgba(205, 211, 222, .42); --gl2: rgba(255, 255, 255, .6); --gl3: rgba(170, 176, 188, .42); --gl4: rgba(255, 255, 255, .42);
-  }
-}
 html[data-shell="mac"] {
   --bf-s: none; --bf-l: none;
   --g1: rgba(255, 255, 255, .66); --g2: rgba(255, 255, 255, .34);
   --gt1: rgba(255, 255, 255, .95); --gt2: rgba(247, 248, 250, .92);
   --list: rgba(255, 255, 255, .5);
-}
-@media (prefers-color-scheme: dark) {
-  html[data-shell="mac"] {
-    --g1: rgba(255, 255, 255, .13); --g2: rgba(255, 255, 255, .05);
-    --gt1: rgba(34, 36, 42, .96); --gt2: rgba(25, 27, 32, .94);
-    --list: rgba(255, 255, 255, .06);
-  }
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -469,7 +437,6 @@ textarea.in { resize: none; display: block; min-height: 120px; }
 @media (hover: hover) { .ccard:hover { transform: translateY(-2px); box-shadow: 0 0 0 .5px var(--g-edge), var(--sh-m), inset 0 1px 0 var(--hi); } }
 .ctile { grid-area: tile; width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; color: var(--ink); background: linear-gradient(180deg, rgba(255, 255, 255, .85), rgba(255, 255, 255, .35)); box-shadow: 0 0 0 .5px var(--g-edge), inset 0 1px 0 var(--hi), 0 4px 10px -5px rgba(20, 22, 28, .3); }
 .ctile.big { width: 60px; height: 60px; border-radius: 20px; }
-@media (prefers-color-scheme: dark) { .ctile { background: linear-gradient(180deg, rgba(255, 255, 255, .2), rgba(255, 255, 255, .06)); } }
 .chip { grid-area: chip; justify-self: end; display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; font-size: .72rem; font-weight: 650; letter-spacing: 0; white-space: nowrap; background: var(--tint); color: var(--dim); }
 .chip.s-connected { background: var(--ink-grad); color: var(--on-ink); }
 .chip.s-available { background: var(--tint-2); color: var(--ink); }
@@ -538,14 +505,12 @@ textarea.in { resize: none; display: block; min-height: 120px; }
 .ev-bar::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--live); transform-origin: 0 50%; transform: scaleX(var(--p, 0)); }
 .ev.all .ev-time b { font-size: .9rem; }
 .wd-wx[data-sky="sun"], .wd-wx[data-sky="rain"], .wd-wx[data-sky="cloud"], .wd-wx[data-sky="snow"] { background: linear-gradient(160deg, rgba(255, 255, 255, .5), var(--g2)); }
-@media (prefers-color-scheme: dark) { .wd-wx[data-sky="sun"], .wd-wx[data-sky="rain"], .wd-wx[data-sky="cloud"], .wd-wx[data-sky="snow"] { background: linear-gradient(160deg, rgba(255, 255, 255, .1), var(--g2)); } }
 .wx-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .wx-main { display: flex; flex-direction: column; line-height: 1.1; }
 .wx-place { font-size: .84rem; font-weight: 600; }
 .wx-temp { margin: 2px 0 2px -3px; font-size: 3.2rem; font-weight: 300; letter-spacing: -.06em; line-height: 1; }
 .wx-sky { font-size: .86rem; color: var(--dim); }
 .wx-ic { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 20px; background: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, .25)); box-shadow: 0 0 0 .5px var(--g-edge), inset 0 1px 0 var(--hi); }
-@media (prefers-color-scheme: dark) { .wx-ic { background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .05)); } }
 .wx-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 10px 0 12px; font-size: .76rem; color: var(--dim); }
 .wx-stat { display: inline-flex; align-items: center; gap: 6px; }
 .wx-days { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
@@ -678,9 +643,6 @@ textarea.in { resize: none; display: block; min-height: 120px; }
 }
 @media (prefers-reduced-transparency: reduce) {
   :root { --g1: rgba(255, 255, 255, .92); --g2: rgba(247, 248, 250, .86); --gt1: #fbfcfd; --gt2: #f4f5f7; --bf-s: none; --bf-l: none; --goo-a: .95; }
-}
-@media (prefers-reduced-transparency: reduce) and (prefers-color-scheme: dark) {
-  :root { --g1: rgba(40, 42, 48, .95); --g2: rgba(30, 32, 37, .92); --gt1: #1d1f24; --gt2: #17191d; }
 }
 @media (prefers-contrast: more) {
   :root { --g-edge: rgba(20, 22, 28, .5); --hair: rgba(20, 22, 28, .3); --dim: #3a3d45; --faint: #4a4e57; }

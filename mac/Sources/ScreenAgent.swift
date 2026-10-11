@@ -184,9 +184,9 @@ final class ScreenAgentController {
         var ok = true
         var error: String?
         switch name {
-        case "click", "double_click", "right_click":
+        case "click", "double_click", "triple_click", "right_click":
             await moveCursor(toGrid: args, label: narration)
-            click(name == "right_click" ? .right : .left, count: name == "double_click" ? 2 : 1)
+            click(name == "right_click" ? .right : .left, count: name == "triple_click" ? 3 : (name == "double_click" ? 2 : 1))
         case "type_text":
             pet.set(label: narration)
             let ok2 = await TextInserter.paste(args["text"] as? String ?? "")

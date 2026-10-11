@@ -62,17 +62,7 @@ import AppKit
     }
 
     private func applyAppearance() {
-        switch UserDefaults.standard.string(forKey: "appearance") ?? "light" {
-        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        case "system": NSApp.appearance = nil
-        default: NSApp.appearance = NSAppearance(named: .aqua)
-        }
-    }
-
-    @objc private func setAppearance(_ sender: NSMenuItem) {
-        UserDefaults.standard.set(sender.representedObject as? String ?? "light", forKey: "appearance")
-        applyAppearance()
-        windowController.web.reload()
+        NSApp.appearance = NSAppearance(named: .aqua)
     }
 
     @objc private func toggleDictation(_ sender: NSMenuItem) {
@@ -173,13 +163,6 @@ import AppKit
 
         let viewItem = NSMenuItem(); main.addItem(viewItem)
         let view = NSMenu(title: "Widok")
-        let look = NSMenu(title: "Wygląd")
-        for (title, key) in [("Jasny", "light"), ("Ciemny", "dark"), ("Systemowy", "system")] {
-            let mi = NSMenuItem(title: title, action: #selector(setAppearance(_:)), keyEquivalent: ""); mi.target = self; mi.representedObject = key
-            look.addItem(mi)
-        }
-        let lookItem = NSMenuItem(title: "Wygląd", action: nil, keyEquivalent: ""); lookItem.submenu = look
-        view.addItem(lookItem)
         let dock = NSMenuItem(title: "Dock w notchu", action: #selector(toggleNotch(_:)), keyEquivalent: ""); dock.target = self
         dock.state = notch.enabled ? .on : .off
         view.addItem(dock)

@@ -132,7 +132,7 @@ export function drawStatic(canvas, opts = {}) {
   c.clearRect(0, 0, px, px);
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   const shape = SHAPE_BY_ID.get(opts.shape) || SHAPE_BY_ID.get('circle');
-  const dark = opts.dark ?? matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = false;
   const R = css * (opts.fill || 0.4);
   const v = faceValues(statics.get('v') || statics.set('v', {}).get('v'), opts.face || 'neutral');
   const eyes = statics.get('e') || statics.set('e', newEyes()).get('e');
