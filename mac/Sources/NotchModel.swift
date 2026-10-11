@@ -2,6 +2,14 @@
 import AppKit
 import SwiftUI
 
+struct AgentRun: Identifiable, Equatable {
+    enum State { case running, ok, failed }
+    let id = UUID()
+    var task: String
+    var state: State = .running
+    var summary = ""
+}
+
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var expanded = false
@@ -24,6 +32,7 @@ final class NotchModel: ObservableObject {
     @Published var level: Float = 0
     @Published var agent = AgentState()
     @Published var agentMode = false
+    @Published var agentHistory: [AgentRun] = []
     var startAgent: (String) -> Void = { _ in }
     var stopAgent: () -> Void = {}
     var answerAgent: (Bool) -> Void = { _ in }
@@ -57,11 +66,23 @@ final class NotchModel: ObservableObject {
     }
 
     var openHeight: CGFloat {
-        var h: CGFloat = 156
+        var h: CGFloat = 156 + agentHistoryHeight
         if !pending.isEmpty { h += CGFloat(min(pending.count, 2)) * 74 }
-        if !reply.isEmpty || streaming || !errorText.isEmpty { h = 134 + replyHeight + (steps.isEmpty ? 0 : 28) + CGFloat(min(pending.count, 2)) * 74 }
+        if !reply.isEmpty || streaming || !errorText.isEmpty { h = 134 + agentHistoryHeight + replyHeight + (steps.isEmpty ? 0 : 28) + CGFloat(min(pending.count, 2)) * 74 }
         else if !nextEvent.isEmpty { h += 24 }
         return min(h, Self.maxHeight)
+    }
+
+    func beginAgentRun(_ task: String) { agentHistory.insert(AgentRun(task: task), at: 0) }
+
+    func endAgentRun(ok: Bool, summary: String) {
+        guard let i = agentHistory.firstIndex(where: { $0.state == .running }) else { return }
+        agentHistory[i].state = ok ? .ok : .failed
+        agentHistory[i].summary = summary
+    }
+
+    var agentHistoryHeight: CGFloat {
+        agentHistory.isEmpty ? 0 : 26 + CGFloat(min(3, agentHistory.count)) * 46 + (agentHistory.count > 3 ? 18 : 0)
     }
 
     var agentSize: CGSize { CGSize(width: 400, height: agent.ask != nil ? 108 : (agent.finished ? 58 : 54)) }

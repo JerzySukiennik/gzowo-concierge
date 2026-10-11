@@ -55,6 +55,7 @@ import AppKit
         notch.start()
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
+        model.onNewThread = { [weak self] in self?.notch.model.agentHistory = [] }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
         monitor.start()
         windowController.show()

@@ -35,7 +35,10 @@ final class AppModel: ObservableObject {
         web?.call("openThread('\(id)')")
     }
 
+    var onNewThread: () -> Void = {}
+
     func newThread() {
+        onNewThread()
         Task {
             if let id = await Api.post("/api/threads")?["id"] as? String {
                 requestPoll?()

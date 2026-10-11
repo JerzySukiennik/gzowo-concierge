@@ -14,6 +14,7 @@
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSScreenCaptureUsageDescription</key><string>Concierge patrzy na ekran, kiedy wykonujesz zadanie agentem.</string>
+<key>NSAppleEventsUsageDescription</key><string>Concierge sprawdza adres otwartej strony, zanim wpisze zapisane hasło.</string>
 <key>NSMicrophoneUsageDescription</key><string>Concierge używa mikrofonu do rozmowy na żywo.</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>

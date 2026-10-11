@@ -12,6 +12,7 @@ import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
+import { listLogins, saveLogin, removeLogin } from './logins.mjs';
 import { handleAgentUpgrade } from './screen-agent.mjs';
 import { getDictionary, saveDictionary, addWord, removeWord, getDictation, setDictation, handleDictateUpgrade } from './dictation.mjs';
 import { modelInfo, setChatModel, saveAnthropicKey, removeAnthropicKey } from './llm.mjs';
@@ -112,6 +113,13 @@ async function api(req, res, url) {
     try {
       if (req.method === 'DELETE') return json(res, 200, removeAnthropicKey());
       return json(res, 200, await saveAnthropicKey(await readBody(req)));
+    } catch (err) { return json(res, 400, { error: String(err.message || err) }); }
+  }
+  if (p === '/api/logins') {
+    if (!isLoopback(req)) return json(res, 403, { error: 'Hasła można zarządzać tylko na Macu.' });
+    try {
+      if (req.method === 'POST') { const b = await readBody(req); if (b.remove) return json(res, 200, { logins: removeLogin(String(b.remove)) }); return json(res, 200, { logins: saveLogin(b) }); }
+      return json(res, 200, { logins: listLogins() });
     } catch (err) { return json(res, 400, { error: String(err.message || err) }); }
   }
   if (p === '/api/dictionary') {

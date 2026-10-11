@@ -75,6 +75,32 @@ struct NotchView: View {
         }
     }
 
+    private var agentHistoryBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("ZADANIA AGENTA").font(.system(size: 9.5, weight: .semibold)).tracking(0.6).foregroundStyle(.white.opacity(0.5))
+                Spacer()
+                Button("Wyczyść") { m.agentHistory = [] }.buttonStyle(.plain).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.white.opacity(0.5))
+            }
+            ForEach(m.agentHistory.prefix(3)) { run in
+                HStack(alignment: .top, spacing: 8) {
+                    switch run.state {
+                    case .running: ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
+                    case .ok: Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white).frame(width: 14, height: 14)
+                    case .failed: Image(systemName: "exclamationmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Color(red: 1, green: 0.45, blue: 0.43)).frame(width: 14, height: 14)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(run.task).font(.system(size: 12, weight: .medium)).foregroundStyle(.white).lineLimit(1)
+                        Text(run.state == .running ? "W trakcie…" : run.summary).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 40, alignment: .top)
+            }
+            if m.agentHistory.count > 3 { Text("+\(m.agentHistory.count - 3) starszych").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.4)) }
+        }
+    }
+
     private var agentBar: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 9) {
@@ -143,6 +169,7 @@ struct NotchView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { m.openApp() }
+            if !m.agentHistory.isEmpty { agentHistoryBlock }
             ForEach(m.pending.prefix(2)) { item in approvalCard(item) }
             if !m.reply.isEmpty || m.streaming || !m.errorText.isEmpty { replyBlock }
             else if !m.nextEvent.isEmpty {

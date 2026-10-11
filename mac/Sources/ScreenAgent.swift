@@ -86,8 +86,18 @@ final class ScreenAgentController {
     private var cursor = CGPoint.zero
     var hiddenWindowNumbers: () -> [Int] = { [] }
 
-    private static let displayWidth = { NSScreen.screens.first?.frame.width ?? 1440 }
-    private static let displayHeight = { NSScreen.screens.first?.frame.height ?? 900 }
+    private var displayID = CGMainDisplayID()
+    private var origin = CGPoint.zero
+    private var screenSize = CGSize(width: 1440, height: 900)
+
+    private func pickScreen() {
+        let mouse = NSEvent.mouseLocation
+        guard let primary = NSScreen.screens.first else { return }
+        let s = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? primary
+        displayID = (s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
+        origin = CGPoint(x: s.frame.minX, y: primary.frame.height - s.frame.maxY)
+        screenSize = s.frame.size
+    }
 
     init(hud: NotchModel) { self.hud = hud }
 
@@ -112,6 +122,8 @@ final class ScreenAgentController {
             return
         }
         running = true
+        pickScreen()
+        hud.beginAgentRun(task)
         hud.agent = AgentState(active: true, narration: "Patrzę na ekran")
         installKeyGuard()
         Task { await loop(task) }
@@ -146,6 +158,7 @@ final class ScreenAgentController {
                 case "ask":
                     hud.agent.step = j["step"] as? Int ?? hud.agent.step
                     hud.agent.ask = j["question"] as? String ?? "Kontynuować?"
+                case "urlcheck": try await send(["type": "url", "url": Self.activeBrowserURL() ?? ""])
                 case "action": await execute(j)
                 case "done": finish(ok: j["ok"] as? Bool ?? true, summary: j["summary"] as? String ?? ""); return
                 default: break
@@ -179,6 +192,9 @@ final class ScreenAgentController {
             let ok2 = await TextInserter.paste(args["text"] as? String ?? "")
             if !ok2 { ok = false; error = "Nie udało się wpisać tekstu." }
             if args["press_enter"] as? Bool == true { await pressKeys("Enter") }
+        case "type_secret":
+            pet.set(label: narration)
+            Self.typeUnicode(args["value"] as? String ?? "")
         case "press_key":
             pet.set(label: narration)
             if !(await pressKeys(args["keys"] as? String ?? "")) { ok = false; error = "Nieznany klawisz." }
@@ -215,6 +231,7 @@ final class ScreenAgentController {
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         pet.hide()
+        hud.endAgentRun(ok: ok, summary: summary)
         hud.agent = AgentState(finished: true, ok: ok, summary: summary)
         NSSound(named: ok ? "Pop" : "Basso")?.play()
         scheduleReset(ok ? 7 : 6)
@@ -246,7 +263,7 @@ final class ScreenAgentController {
 
     private func capture() async throws -> String {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first else { throw CocoaError(.fileNoSuchFile) }
+        guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else { throw CocoaError(.fileNoSuchFile) }
         let ids = Set(hiddenWindowNumbers() + [pet.windowNumber])
         let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { ids.contains(Int($0.windowID)) })
         let cfg = SCStreamConfiguration()
@@ -263,7 +280,7 @@ final class ScreenAgentController {
     private func point(fromGrid args: [String: Any]) -> CGPoint {
         let x = (args["x"] as? Double) ?? Double(args["x"] as? Int ?? 500)
         let y = (args["y"] as? Double) ?? Double(args["y"] as? Int ?? 500)
-        return CGPoint(x: min(max(x, 0), 1000) / 1000 * Self.displayWidth(), y: min(max(y, 0), 1000) / 1000 * Self.displayHeight())
+        return CGPoint(x: origin.x + min(max(x, 0), 1000) / 1000 * screenSize.width, y: origin.y + min(max(y, 0), 1000) / 1000 * screenSize.height)
     }
 
     private func moveCursor(toGrid args: [String: Any], label: String) async {
@@ -307,6 +324,33 @@ final class ScreenAgentController {
         default: dx = -n
         }
         CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: dy * 3, wheel2: dx * 3, wheel3: 0)?.post(tap: .cghidEventTap)
+    }
+
+    static func typeUnicode(_ text: String) {
+        for ch in text {
+            var u = Array(String(ch).utf16)
+            for down in [true, false] {
+                guard let e = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
+                e.keyboardSetUnicodeString(stringLength: u.count, unicodeString: &u)
+                e.post(tap: .cghidEventTap)
+                usleep(6_000)
+            }
+        }
+    }
+
+    static func activeBrowserURL() -> String? {
+        guard let app = NSWorkspace.shared.frontmostApplication, let id = app.bundleIdentifier else { return nil }
+        let script: String
+        switch id {
+        case "com.apple.Safari": script = "tell application \"Safari\" to return URL of current tab of front window"
+        case "com.google.Chrome": script = "tell application \"Google Chrome\" to return URL of active tab of front window"
+        case "com.brave.Browser": script = "tell application \"Brave Browser\" to return URL of active tab of front window"
+        case "com.microsoft.edgemac": script = "tell application \"Microsoft Edge\" to return URL of active tab of front window"
+        case "company.thebrowser.Browser": script = "tell application \"Arc\" to return URL of active tab of front window"
+        default: return nil
+        }
+        var err: NSDictionary?
+        return NSAppleScript(source: script)?.executeAndReturnError(&err).stringValue
     }
 
     private func openApp(_ name: String) -> Bool {

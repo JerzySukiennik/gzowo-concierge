@@ -47,7 +47,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
   const rows = new Map(), facts = new Map();
   const hiddenFacts = new Set();
   const regs = new Map();
-  let rootEl = null, polList = null, memList = null, memEmpty = null, undo = null, token = 0, stack = [], heroSub = null, heroIcons = null, memSub = null, skillSub = null, dictSub = null;
+  let rootEl = null, polList = null, memList = null, memEmpty = null, undo = null, token = 0, stack = [], heroSub = null, heroIcons = null, memSub = null, skillSub = null, dictSub = null, loginSub = null;
 
   const conn = createConnectors({
     getTransport, state,
@@ -344,6 +344,44 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     return {};
   }
 
+  function loginsPage(page) {
+    const t = getTransport(), my = token;
+    if (!t.getLogins || !localHost) { page.append(el('p', 'foot flush', 'Hasła agenta można zapisać tylko w aplikacji na Macu.')); return {}; }
+    page.append(el('p', 'foot flush', 'Agent może zalogować się za Ciebie, ale nigdy nie widzi hasła. Apka wpisuje je sama i tylko wtedy, gdy adres otwartej strony pasuje do zapisanej domeny (https). Hasła są szyfrowane w Pęku kluczy na tym Macu. Kody SMS, aplikacje uwierzytelniające i captche zostają po Twojej stronie.'));
+    const form = el('form', 'dict-form');
+    const site = el('input', 'time-in'); site.placeholder = 'Domena, np. google.com'; site.setAttribute('aria-label', 'Domena'); site.autocomplete = 'off'; site.autocapitalize = 'off';
+    const user = el('input', 'time-in'); user.placeholder = 'Login lub e-mail'; user.setAttribute('aria-label', 'Login'); user.autocomplete = 'off'; user.autocapitalize = 'off';
+    const pass = el('input', 'time-in'); pass.type = 'password'; pass.placeholder = 'Hasło'; pass.setAttribute('aria-label', 'Hasło'); pass.autocomplete = 'new-password';
+    const add = el('button', 'btn ink', 'Zapisz'); add.type = 'submit';
+    form.append(site, user, pass, add);
+    const list = el('div', 'list');
+    const empty = el('p', 'foot flush', 'Brak zapisanych kont.');
+    page.append(form, list, empty, el('p', 'foot', 'Przełącznik przy koncie: włączony, to przed pierwszym logowaniem w danym zadaniu agent zapyta Cię o zgodę w wyspie.'));
+    let logins = [];
+    const render = () => {
+      list.textContent = '';
+      logins.forEach(l => {
+        const row = el('div', 'item');
+        const txt = el('div', 'item-t', '<span class="i-main"></span><span class="i-sub"></span>');
+        txt.querySelector('.i-main').textContent = l.site;
+        txt.querySelector('.i-sub').textContent = l.username + (l.ask ? ' · pyta o zgodę' : ' · loguje bez pytania');
+        const sw = makeSwitch('Pytaj o zgodę: ' + l.site, l.ask, async v => { try { logins = (await t.saveLogin({ id: l.id, site: l.site, ask: v })).logins; render(); } catch { toast('Nie udało się zapisać.'); } });
+        row.append(txt, sw, delButton('Usuń konto: ' + l.site, async () => { try { logins = (await t.removeLogin(l.id)).logins; render(); } catch { toast('Nie udało się usunąć.'); } }));
+        list.append(row);
+      });
+      list.hidden = !logins.length; empty.hidden = !!logins.length;
+      if (loginSub) loginSub.textContent = logins.length ? 'Zapisane konta: ' + logins.length : 'Brak kont';
+    };
+    form.onsubmit = async e => {
+      e.preventDefault();
+      if (!site.value.trim() || !user.value.trim() || !pass.value) { toast('Podaj domenę, login i hasło.'); return; }
+      try { logins = (await t.saveLogin({ site: site.value, username: user.value, password: pass.value, ask: true })).logins; site.value = ''; user.value = ''; pass.value = ''; render(); }
+      catch (err) { toast(String(err.message || '').includes('domen') ? 'Podaj domenę, np. google.com' : 'Nie udało się zapisać.'); }
+    };
+    t.getLogins().then(r => { if (my === token) { logins = r.logins || []; render(); } }).catch(() => { empty.textContent = 'Nie udało się wczytać kont.'; });
+    return { destroy() { pass.value = ''; } };
+  }
+
   function memoryPage(page) {
     memList = el('div', 'list');
     memEmpty = el('p', 'foot flush', 'Jeszcze nic. Powiedz mi coś o sobie, a zapamiętam.');
@@ -616,6 +654,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
       navRow('spark', 'Umiejętności', skillSub, () => push('Umiejętności', skillsPage)),
       navRow('bookmark', 'Pamięć', memSub, () => push('Pamięć', memoryPage)),
     );
+    if (t.getLogins && localHost) { loginSub = el('span', 'n-sub'); loginSub.textContent = 'Logowanie za Ciebie'; nav.append(navRow('key', 'Hasła agenta', loginSub, () => push('Hasła agenta', loginsPage))); }
     if (t.getDictionary) { dictSub = el('span', 'n-sub'); dictSub.textContent = 'Przytrzymaj Control i Option'; nav.append(navRow('mic', 'Dyktowanie', dictSub, () => push('Dyktowanie', dictationPage))); }
     if (t.listCards && localHost) { const cs = el('span', 'n-sub'); cs.textContent = 'Tylko na tym Macu'; nav.append(navRow('card', 'Karty', cs, () => push('Karty', cardsPage))); }
     sn.append(nav);
