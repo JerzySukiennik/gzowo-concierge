@@ -29,6 +29,8 @@ final class NotchModel: ObservableObject {
     var onFinished: (String) -> Void = { _ in }
     var openApp: () -> Void = {}
     var openLive: () -> Void = {}
+    var openSettings: () -> Void = {}
+    var quitApp: () -> Void = {}
     var requestPoll: () -> Void = {}
     var expandRequest: () -> Void = {}
     private var streamTask: Task<Void, Never>?

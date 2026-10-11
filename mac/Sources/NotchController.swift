@@ -144,7 +144,7 @@ final class NotchController {
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if !self.model.expanded { if self.pillHit.contains(NSEvent.mouseLocation) { self.expand() }; return }
+                if !self.model.expanded { if self.pillHit.contains(NSEvent.mouseLocation) { self.onOpenApp() }; return }
                 if !self.shapeRect.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) { self.model.pending.isEmpty ? self.collapse() : () }
             }
         }) { monitors.append(m) }

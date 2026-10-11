@@ -20,7 +20,7 @@ struct NotchView: View {
                 .opacity(m.expanded ? 0 : 1)
                 .animation(.easeOut(duration: 0.12), value: m.expanded)
                 .contentShape(Rectangle())
-                .onTapGesture { m.expandRequest() }
+                .onTapGesture { m.openApp() }
                 .allowsHitTesting(!m.expanded)
             expanded
                 .frame(width: m.openSize.width, height: contentHeight, alignment: .top)
@@ -30,6 +30,13 @@ struct NotchView: View {
         }
         .frame(width: w, height: h, alignment: .top)
         .clipShape(shape)
+        .contextMenu {
+            Button("Otwórz Concierge") { m.openApp() }
+            Button("Rozmowa na żywo") { m.openLive() }
+            Button("Ustawienia") { m.openSettings() }
+            Divider()
+            Button("Zakończ Concierge") { m.quitApp() }
+        }
         .shadow(color: .black.opacity(m.expanded ? 0.4 : 0), radius: 16, y: 8)
         .animation(m.expanded ? openSpring : closeSpring, value: m.expanded)
         .animation(openSpring, value: contentHeight)
@@ -84,6 +91,8 @@ struct NotchView: View {
                 roundButton("waveform", "Rozmowa na żywo") { m.openLive() }
                 roundButton("macwindow", "Otwórz Concierge") { m.openApp() }
             }
+            .contentShape(Rectangle())
+            .onTapGesture { m.openApp() }
             ForEach(m.pending.prefix(2)) { item in approvalCard(item) }
             if !m.reply.isEmpty || m.streaming || !m.errorText.isEmpty { replyBlock }
             else if !m.nextEvent.isEmpty {

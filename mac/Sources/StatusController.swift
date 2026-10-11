@@ -20,6 +20,8 @@ import AppKit
         redraw()
     }
 
+    func setVisible(_ visible: Bool) { item.isVisible = visible }
+
     func update(_ next: HostState) {
         state = next
         let active = next.online && (next.busy || next.live == "thinking" || next.live == "speaking")

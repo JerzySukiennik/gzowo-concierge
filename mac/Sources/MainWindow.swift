@@ -128,8 +128,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     var isShown: Bool { window?.isVisible == true && NSApp.isActive }
 
+    private var islandOn: Bool { UserDefaults.standard.object(forKey: "notchEnabled") as? Bool ?? true }
+
     func show() {
         guard let window else { return }
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         if window.isMiniaturized { window.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -138,6 +141,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func hide() {
         web.call("closeLive()")
         window?.orderOut(nil)
+        if islandOn { NSApp.setActivationPolicy(.accessory) }
     }
 
     func toggle() { isShown ? hide() : show() }

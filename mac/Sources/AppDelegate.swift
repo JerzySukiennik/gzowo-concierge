@@ -38,6 +38,8 @@ import AppKit
         }
         notch.onOpenApp = { [weak self] in self?.windowController.show() }
         notch.onOpenLive = { [weak self] in self?.openLive() }
+        notch.model.openSettings = { [weak self] in self?.openSettings() }
+        notch.model.quitApp = { NSApp.terminate(nil) }
         briefNotifier.onOpen = { [weak self] thread in
             self?.windowController.show()
             self?.model.select(thread)
@@ -45,6 +47,7 @@ import AppKit
         briefNotifier.start()
         dictation.start()
         notch.start()
+        status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
         monitor.start()
@@ -73,6 +76,8 @@ import AppKit
     @objc private func toggleNotch(_ sender: NSMenuItem) {
         notch.enabled.toggle()
         sender.state = notch.enabled ? .on : .off
+        status.setVisible(!notch.enabled)
+        if notch.enabled == false { NSApp.setActivationPolicy(.regular) }
     }
 
     @objc func newThread() { windowController.show(); Task { @MainActor in model.newThread() } }
