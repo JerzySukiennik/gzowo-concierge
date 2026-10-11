@@ -13,6 +13,7 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSScreenCaptureUsageDescription</key><string>Concierge patrzy na ekran, kiedy wykonujesz zadanie agentem.</string>
 <key>NSMicrophoneUsageDescription</key><string>Concierge używa mikrofonu do rozmowy na żywo.</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>

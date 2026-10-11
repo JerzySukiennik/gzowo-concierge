@@ -3,10 +3,11 @@ import { config } from './config.mjs';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-export async function generate({ model = config.chatModel, system, contents, tools, thinking = 'low', temperature, signal }) {
+export async function generate({ model = config.chatModel, system, contents, tools, toolConfig, thinking = 'low', temperature, signal }) {
   const body = { contents };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (tools?.length) body.tools = tools;
+  if (toolConfig) body.toolConfig = toolConfig;
   body.generationConfig = {};
   if (thinking) body.generationConfig.thinkingConfig = { thinkingLevel: thinking };
   if (temperature !== undefined) body.generationConfig.temperature = temperature;

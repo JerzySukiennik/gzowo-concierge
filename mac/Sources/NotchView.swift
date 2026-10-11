@@ -10,18 +10,24 @@ struct NotchView: View {
 
     var body: some View {
         let pillW = m.closedSize.width + m.pillExtra
-        let w = m.expanded ? m.openSize.width : pillW
-        let h = m.expanded ? contentHeight : m.closedSize.height
-        let shape = NotchShape(topRadius: m.expanded ? 16 : 5, bottomRadius: m.expanded ? 26 : 8)
+        let agentOn = m.agent.visible && !m.expanded
+        let w = m.expanded ? m.openSize.width : (agentOn ? m.agentSize.width : pillW)
+        let h = m.expanded ? contentHeight : (agentOn ? m.agentSize.height : m.closedSize.height)
+        let shape = NotchShape(topRadius: m.expanded ? 16 : (agentOn ? 12 : 5), bottomRadius: m.expanded ? 26 : (agentOn ? 22 : 8))
         ZStack(alignment: .top) {
             shape.fill(Color.black)
             collapsed
                 .frame(width: pillW, height: m.closedSize.height, alignment: .top)
-                .opacity(m.expanded ? 0 : 1)
+                .opacity(m.expanded || agentOn ? 0 : 1)
                 .animation(.easeOut(duration: 0.12), value: m.expanded)
                 .contentShape(Rectangle())
                 .onTapGesture { m.openApp() }
-                .allowsHitTesting(!m.expanded)
+                .allowsHitTesting(!m.expanded && !agentOn)
+            agentBar
+                .frame(width: m.agentSize.width, height: m.agentSize.height, alignment: .top)
+                .opacity(agentOn ? 1 : 0)
+                .animation(.easeOut(duration: 0.18), value: agentOn)
+                .allowsHitTesting(agentOn)
             expanded
                 .frame(width: m.openSize.width, height: contentHeight, alignment: .top)
                 .opacity(m.expanded ? 1 : 0)
@@ -41,6 +47,7 @@ struct NotchView: View {
         .animation(m.expanded ? openSpring : closeSpring, value: m.expanded)
         .animation(openSpring, value: contentHeight)
         .animation(openSpring, value: m.dictation)
+        .animation(openSpring, value: m.agent)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
     }
@@ -66,6 +73,49 @@ struct NotchView: View {
                 Circle().stroke(Color.white.opacity(0.5), lineWidth: 1.2).frame(width: 7, height: 7).padding(.trailing, 14)
             }
         }
+    }
+
+    private var agentBar: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 9) {
+                bot(18)
+                if m.agent.finished {
+                    Image(systemName: m.agent.ok ? "checkmark" : "exclamationmark").font(.system(size: 11, weight: .bold)).foregroundStyle(m.agent.ok ? Color.white : Color(red: 1, green: 0.45, blue: 0.43))
+                    Text(m.agent.summary).font(.system(size: 12)).foregroundStyle(.white).lineLimit(2)
+                } else {
+                    VStack(alignment: .leading, spacing: 1) {
+                        if m.agent.total > 0 { Text("KROK \(max(m.agent.step, 1)) Z \(m.agent.total)").font(.system(size: 9.5, weight: .semibold)).tracking(0.6).foregroundStyle(.white.opacity(0.55)) }
+                        Text(m.agent.narration).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                if m.agent.active {
+                    Button { m.stopAgent() } label: {
+                        Image(systemName: "xmark").font(.system(size: 9.5, weight: .bold)).foregroundStyle(.white).frame(width: 22, height: 22).background(Color.white.opacity(0.14), in: Circle())
+                    }
+                    .buttonStyle(.plain).help("Zatrzymaj (Esc)").accessibilityLabel("Zatrzymaj agenta")
+                }
+            }
+            if m.agent.active && m.agent.total > 0 {
+                HStack(spacing: 4) {
+                    ForEach(0..<m.agent.total, id: \.self) { i in
+                        Capsule().fill(Color.white.opacity(i < max(m.agent.step, 1) ? 0.95 : 0.2)).frame(height: 3)
+                    }
+                }
+            }
+            if let q = m.agent.ask {
+                HStack(spacing: 10) {
+                    Text(q).font(.system(size: 12)).foregroundStyle(.white).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Nie") { m.answerAgent(false) }
+                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 13).padding(.vertical, 6).background(Color.white.opacity(0.14), in: Capsule())
+                    Button("Tak") { m.answerAgent(true) }
+                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(.black)
+                        .padding(.horizontal, 15).padding(.vertical, 6).background(Color.white, in: Capsule())
+                }
+            }
+        }
+        .padding(.horizontal, 20).padding(.top, 9)
     }
 
     @ViewBuilder
@@ -155,13 +205,18 @@ struct NotchView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("Napisz do Concierge", text: $m.text)
+            TextField(m.agentMode ? "Co mam zrobić na ekranie?" : "Napisz do Concierge", text: $m.text)
                 .textFieldStyle(.plain).font(.system(size: 13.5)).foregroundStyle(.white)
                 .focused($focused)
                 .onSubmit { m.send() }
                 .padding(.horizontal, 14).padding(.vertical, 9)
                 .background(Color.white.opacity(0.1), in: Capsule())
                 .accessibilityLabel("Napisz do Concierge")
+            Button { m.agentMode.toggle() } label: {
+                Image(systemName: "cursorarrow.click.2").font(.system(size: 13, weight: .semibold)).foregroundStyle(m.agentMode ? Color.black : Color.white)
+                    .frame(width: 30, height: 30).background(m.agentMode ? Color.white : Color.white.opacity(0.12), in: Circle())
+            }
+            .buttonStyle(.plain).help("Agent ekranu: wykona zadanie na Twoim ekranie").accessibilityLabel("Tryb agenta ekranu")
             Button { m.send() } label: {
                 Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(.black)
                     .frame(width: 30, height: 30).background(Color.white.opacity(m.text.isEmpty ? 0.35 : 1), in: Circle())

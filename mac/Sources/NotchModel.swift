@@ -22,6 +22,12 @@ final class NotchModel: ObservableObject {
     @Published var blink = false
     @Published var dictation: DictationPhase = .idle
     @Published var level: Float = 0
+    @Published var agent = AgentState()
+    @Published var agentMode = false
+    var startAgent: (String) -> Void = { _ in }
+    var stopAgent: () -> Void = {}
+    var answerAgent: (Bool) -> Void = { _ in }
+    var collapseRequest: () -> Void = {}
     var wantsFocus = false
     var replyThread = ""
 
@@ -58,6 +64,8 @@ final class NotchModel: ObservableObject {
         return min(h, Self.maxHeight)
     }
 
+    var agentSize: CGSize { CGSize(width: 400, height: agent.ask != nil ? 108 : (agent.finished ? 58 : 54)) }
+
     var pillExtra: CGFloat {
         switch dictation {
         case .idle: return 0
@@ -87,6 +95,13 @@ final class NotchModel: ObservableObject {
     func send() {
         let msg = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !msg.isEmpty, !streaming else { return }
+        if agentMode {
+            text = ""
+            agentMode = false
+            collapseRequest()
+            startAgent(msg)
+            return
+        }
         text = ""
         reply = ""; steps = []; errorText = ""
         streaming = true

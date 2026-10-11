@@ -43,6 +43,7 @@ final class NotchController {
         panel = p
 
         model.expandRequest = { [weak self] in self?.expand() }
+        model.collapseRequest = { [weak self] in self?.collapse() }
         model.openApp = { [weak self] in self?.collapse(); self?.onOpenApp() }
         model.openLive = { [weak self] in self?.collapse(); self?.onOpenLive() }
 
@@ -144,7 +145,7 @@ final class NotchController {
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if !self.model.expanded { if self.pillHit.contains(NSEvent.mouseLocation) { self.onOpenApp() }; return }
+                if !self.model.expanded { if !self.model.agent.visible && self.pillHit.contains(NSEvent.mouseLocation) { self.onOpenApp() }; return }
                 if !self.shapeRect.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) { self.model.pending.isEmpty ? self.collapse() : () }
             }
         }) { monitors.append(m) }
@@ -161,8 +162,11 @@ final class NotchController {
         }) { monitors.append(m) }
     }
 
+    var windowNumber: Int { panel.windowNumber }
+
     private var pillHit: NSRect {
         let s = screen.frame, c = model.closedSize
+        if model.agent.visible { let a = model.agentSize; return NSRect(x: s.midX - a.width / 2 - 6, y: s.maxY - a.height - 6, width: a.width + 12, height: a.height + 6) }
         return NSRect(x: s.midX - c.width / 2 - 10, y: s.maxY - c.height - 4, width: c.width + 20, height: c.height + 4)
     }
 
@@ -172,7 +176,7 @@ final class NotchController {
         let over = model.expanded ? shapeRect.insetBy(dx: -4, dy: -4).contains(p) : pillHit.contains(p)
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if !model.expanded {
-            if pillHit.contains(p) {
+            if pillHit.contains(p) && !model.agent.visible {
                 if expandWork == nil {
                     let w = DispatchWorkItem { [weak self] in self?.expandWork = nil; self?.expand(focus: false) }
                     expandWork = w

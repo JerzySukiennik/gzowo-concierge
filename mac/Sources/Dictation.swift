@@ -21,6 +21,10 @@ final class DictationController {
     private var resetTask: Task<Void, Never>?
 
     private static let required: NSEvent.ModifierFlags = [.control, .option]
+    private static let agentFlags: NSEvent.ModifierFlags = [.control, .option, .shift]
+    private var agentMode = false
+    private var sessionAgent = false
+    var onAgentTask: (String) -> Void = { _ in }
     private static let tracked: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
     private static let armingDelay: TimeInterval = 0.18
     private static let minimumHold: TimeInterval = 0.4
@@ -52,11 +56,14 @@ final class DictationController {
         guard enabled else { return }
         let current = flags.intersection(Self.tracked)
         if engagedAt == nil {
-            if current == Self.required { engage() }
+            if current == Self.required { agentMode = false; engage() }
+            else if current == Self.agentFlags { agentMode = true; engage() }
             return
         }
-        if current == Self.required { return }
-        finish(cancelled: current.isSuperset(of: Self.required))
+        let need = agentMode ? Self.agentFlags : Self.required
+        if current == need { return }
+        if !agentMode && !armed && current == Self.agentFlags { agentMode = true; return }
+        finish(cancelled: current.isSuperset(of: need))
     }
 
     private func engage() {
@@ -73,6 +80,7 @@ final class DictationController {
     private func arm() {
         guard engagedAt != nil, !armed else { return }
         armed = true
+        sessionAgent = agentMode
         begin()
     }
 
@@ -161,6 +169,11 @@ final class DictationController {
         switch result {
         case .text(let text):
             guard !text.isEmpty else { set(.failed("Nic nie usłyszałem")); return }
+            if sessionAgent {
+                hud.dictation = .idle
+                onAgentTask(text)
+                return
+            }
             Task {
                 let ok = await TextInserter.insert(text)
                 set(ok ? .done : .failed("Nie udało się wstawić tekstu"))
@@ -311,7 +324,7 @@ enum TextInserter {
     static func insert(_ text: String) async -> Bool {
         guard AXIsProcessTrusted(), !text.isEmpty else { return false }
         if insertViaAX(text) { return true }
-        return await insertViaPaste(text)
+        return await paste(text)
     }
 
     private static func insertViaAX(_ text: String) -> Bool {
@@ -327,7 +340,7 @@ enum TextInserter {
         return AXUIElementSetAttributeValue(el, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success
     }
 
-    private static func insertViaPaste(_ text: String) async -> Bool {
+    static func paste(_ text: String) async -> Bool {
         let pb = NSPasteboard.general
         let saved: [[NSPasteboard.PasteboardType: Data]] = (pb.pasteboardItems ?? []).map { item in
             var d: [NSPasteboard.PasteboardType: Data] = [:]

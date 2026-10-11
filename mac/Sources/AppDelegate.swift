@@ -9,6 +9,7 @@ import AppKit
     private let notch = NotchController()
     private let briefNotifier = BriefNotifier()
     private lazy var dictation = DictationController(hud: notch.model)
+    private lazy var screenAgent = ScreenAgentController(hud: notch.model)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyAppearance()
@@ -46,6 +47,11 @@ import AppKit
         }
         briefNotifier.start()
         dictation.start()
+        screenAgent.hiddenWindowNumbers = { [weak self] in self.map { [$0.notch.windowNumber] } ?? [] }
+        notch.model.startAgent = { [weak self] task in self?.screenAgent.run(task: task) }
+        notch.model.stopAgent = { [weak self] in self?.screenAgent.stop() }
+        notch.model.answerAgent = { [weak self] yes in self?.screenAgent.answer(yes) }
+        dictation.onAgentTask = { [weak self] task in self?.screenAgent.run(task: task) }
         notch.start()
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }

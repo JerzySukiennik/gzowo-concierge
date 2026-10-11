@@ -12,6 +12,7 @@ import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
+import { handleAgentUpgrade } from './screen-agent.mjs';
 import { getDictionary, saveDictionary, addWord, removeWord, getDictation, setDictation, handleDictateUpgrade } from './dictation.mjs';
 import { modelInfo, setChatModel, saveAnthropicKey, removeAnthropicKey } from './llm.mjs';
 import { getBrief, setBrief, runBrief, startBrief } from './brief.mjs';
@@ -166,6 +167,10 @@ const server = http.createServer(async (req, res) => {
 
 server.on('upgrade', (req, socket) => {
   const url = new URL(req.url, 'http://x');
+  if (url.pathname === '/agent') {
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
+    handleAgentUpgrade(req, socket); return;
+  }
   if (url.pathname === '/dictate') {
     if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
     handleDictateUpgrade(req, socket); return;
