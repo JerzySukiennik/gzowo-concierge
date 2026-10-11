@@ -10,6 +10,7 @@ import AppKit
     private let briefNotifier = BriefNotifier()
     private lazy var dictation = DictationController(hud: notch.model)
     private lazy var screenAgent = ScreenAgentController(hud: notch.model)
+    private lazy var touchBarAssistant = TouchBarAssistant(model: notch.model)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyAppearance()
@@ -53,9 +54,10 @@ import AppKit
         notch.model.answerAgent = { [weak self] yes in self?.screenAgent.answer(yes) }
         dictation.onAgentTask = { [weak self] task in self?.screenAgent.run(task: task) }
         notch.start()
+        touchBarAssistant.start()
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
-        model.onNewThread = { [weak self] in self?.notch.model.agentHistory = [] }
+        model.onNewThread = { [weak self] in self?.notch.model.agentHistory = []; self?.screenAgent.newSession() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
         monitor.start()
         windowController.show()
@@ -63,6 +65,11 @@ import AppKit
 
     private func applyAppearance() {
         NSApp.appearance = NSAppearance(named: .aqua)
+    }
+
+    @objc private func toggleTouchBar(_ sender: NSMenuItem) {
+        touchBarAssistant.enabled.toggle()
+        sender.state = touchBarAssistant.enabled ? .on : .off
     }
 
     @objc private func toggleDictation(_ sender: NSMenuItem) {
@@ -169,6 +176,9 @@ import AppKit
         let dict = NSMenuItem(title: "Dyktowanie (⌃⌥)", action: #selector(toggleDictation(_:)), keyEquivalent: ""); dict.target = self
         dict.state = dictation.enabled ? .on : .off
         view.addItem(dict)
+        let tb = NSMenuItem(title: "Asystent na Touch Barze", action: #selector(toggleTouchBar(_:)), keyEquivalent: ""); tb.target = self
+        tb.state = touchBarAssistant.enabled ? .on : .off
+        view.addItem(tb)
         view.addItem(.separator())
         let reload = NSMenuItem(title: "Przeładuj", action: #selector(reload), keyEquivalent: "r"); reload.target = self
         view.addItem(reload)

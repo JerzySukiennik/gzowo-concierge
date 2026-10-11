@@ -84,6 +84,8 @@ final class ScreenAgentController {
     private var injecting = false
     private var resetTask: Task<Void, Never>?
     private var cursor = CGPoint.zero
+    private var sessionID = UUID().uuidString
+    func newSession() { sessionID = UUID().uuidString }
     var hiddenWindowNumbers: () -> [Int] = { [] }
 
     private var displayID = CGMainDisplayID()
@@ -147,7 +149,7 @@ final class ScreenAgentController {
         ws.resume()
         do {
             let first = try await capture()
-            try await send(["type": "start", "task": task, "image": first])
+            try await send(["type": "start", "task": task, "image": first, "session": sessionID])
             while running {
                 let message = try await ws.receive()
                 guard case .string(let text) = message, let d = text.data(using: .utf8),
