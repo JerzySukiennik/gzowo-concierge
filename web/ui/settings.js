@@ -47,7 +47,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
   const rows = new Map(), facts = new Map();
   const hiddenFacts = new Set();
   const regs = new Map();
-  let rootEl = null, polList = null, memList = null, memEmpty = null, undo = null, token = 0, stack = [], heroSub = null, heroIcons = null, memSub = null, skillSub = null;
+  let rootEl = null, polList = null, memList = null, memEmpty = null, undo = null, token = 0, stack = [], heroSub = null, heroIcons = null, memSub = null, skillSub = null, dictSub = null;
 
   const conn = createConnectors({
     getTransport, state,
@@ -274,6 +274,73 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     };
     if (!t.listSkills) { empty.textContent = 'Umiejętności są dostępne na Macu.'; return {}; }
     t.listSkills().then(r => { if (my === token) { data = r; render(); } }).catch(() => { empty.textContent = 'Nie udało się wczytać umiejętności.'; });
+    return {};
+  }
+
+  function dictationPage(page) {
+    const t = getTransport(), my = token;
+    if (!t.getDictionary) { page.append(el('p', 'foot flush', 'Dyktowanie jest dostępne w aplikacji na Macu.')); return {}; }
+    const how = el('p', 'foot flush', 'Przytrzymaj Control i Option, mów, puść. Tekst pojawi się tam, gdzie pisałeś. Wymaga zgody na Dostępność i mikrofon dla Concierge.');
+    const secClean = el('section', 'grp');
+    secClean.append(el('h3', null, '<span></span>'));
+    secClean.querySelector('h3 span').textContent = 'Czyszczenie tekstu';
+    const pair = el('div', 'pair-btns');
+    const note = el('p', 'foot', '');
+    const btns = {};
+    let cfg = { cleaner: 'gemini', haikuReady: false };
+    const paint = () => {
+      for (const k of ['gemini', 'haiku']) { btns[k].className = 'btn ' + (cfg.cleaner === k ? 'ink' : 'tonal'); btns[k].setAttribute('aria-pressed', String(cfg.cleaner === k)); }
+      note.textContent = cfg.haikuReady ? 'Mowę zamienia na tekst Gemini Live, a czyści wybrany model.' : 'Claude Haiku 5.5 wymaga klucza Anthropic zapisanego na tym Macu. Do tego czasu czyści Gemini.';
+    };
+    for (const [k, label] of [['gemini', 'Gemini'], ['haiku', 'Claude Haiku 5.5']]) {
+      const b = el('button', 'btn tonal'); b.type = 'button'; b.textContent = label;
+      b.onclick = async () => {
+        if (cfg.cleaner === k) return;
+        try { cfg = await t.setDictation({ cleaner: k }); } catch { toast('Najpierw zapisz klucz Anthropic.'); }
+        paint();
+      };
+      btns[k] = b; pair.append(b);
+    }
+    secClean.append(pair, note);
+
+    const secWords = el('section', 'grp');
+    secWords.append(el('h3', null, '<span></span>'));
+    secWords.querySelector('h3 span').textContent = 'Słownik';
+    const form = el('form', 'dict-form');
+    const term = el('input', 'time-in'); term.placeholder = 'Słowo, np. Claude'; term.setAttribute('aria-label', 'Słowo'); term.autocomplete = 'off';
+    const alias = el('input', 'time-in'); alias.placeholder = 'Jak je słyszy, np. Cloud, Klod'; alias.setAttribute('aria-label', 'Jak model je słyszy'); alias.autocomplete = 'off';
+    const add = el('button', 'btn ink', 'Dodaj'); add.type = 'submit';
+    form.append(term, alias, add);
+    const list = el('div', 'list');
+    const empty = el('p', 'foot flush', 'Słownik jest pusty.');
+    secWords.append(form, list, empty, el('p', 'foot', 'Słowo jest zapisywane zawsze tak, jak tu wpisano. Po przecinku podaj, jak model je błędnie słyszy: takie wersje są automatycznie poprawiane.'));
+    page.append(how, secClean, secWords);
+
+    let words = [];
+    const render = () => {
+      list.textContent = '';
+      words.forEach(w => {
+        const row = el('div', 'item');
+        const txt = el('div', 'item-t', '<span class="i-main"></span><span class="i-sub"></span>');
+        txt.querySelector('.i-main').textContent = w.term;
+        txt.querySelector('.i-sub').textContent = w.aliases.length ? 'Słyszane jako: ' + w.aliases.join(', ') : 'Bez wariantów';
+        row.append(txt, delButton('Usuń ze słownika: ' + w.term, async () => { try { words = (await t.removeDictWord(w.term)).words; render(); } catch { toast('Nie udało się usunąć.'); } }));
+        list.append(row);
+      });
+      list.hidden = !words.length; empty.hidden = !!words.length;
+      if (dictSub) dictSub.textContent = words.length + ' słów w słowniku';
+    };
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const tm = term.value.trim();
+      if (!tm) return;
+      try { words = (await t.addDictWord(tm, alias.value.split(',').map(x => x.trim()).filter(Boolean))).words; term.value = ''; alias.value = ''; render(); term.focus(); }
+      catch { toast('Nie udało się dodać.'); }
+    };
+    t.getDictation().then(c => { if (my === token) { cfg = c; paint(); } }).catch(() => {});
+    for (const k of ['gemini', 'haiku']) btns[k].className = 'btn tonal';
+    t.getDictionary().then(r => { if (my === token) { words = r.words || []; render(); } }).catch(() => { empty.textContent = 'Nie udało się wczytać słownika.'; });
+    paint();
     return {};
   }
 
@@ -549,6 +616,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
       navRow('spark', 'Umiejętności', skillSub, () => push('Umiejętności', skillsPage)),
       navRow('bookmark', 'Pamięć', memSub, () => push('Pamięć', memoryPage)),
     );
+    if (t.getDictionary) { dictSub = el('span', 'n-sub'); dictSub.textContent = 'Przytrzymaj Control i Option'; nav.append(navRow('mic', 'Dyktowanie', dictSub, () => push('Dyktowanie', dictationPage))); }
     if (t.listCards && localHost) { const cs = el('span', 'n-sub'); cs.textContent = 'Tylko na tym Macu'; nav.append(navRow('card', 'Karty', cs, () => push('Karty', cardsPage))); }
     sn.append(nav);
 
@@ -572,6 +640,7 @@ export function createSettings({ body, head, toast, state, getTransport, onClear
     else if (name === 'avatar') push('Awatar', avatarPage, instant);
     else if (name === 'skills') push('Umiejętności', skillsPage, instant);
     else if (name === 'memory') push('Pamięć', memoryPage, instant);
+    else if (name === 'dictation' && t.getDictionary) push('Dyktowanie', dictationPage, instant);
     else if (name === 'cards' && t.listCards) push('Karty', cardsPage, instant);
   }
 

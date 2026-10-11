@@ -20,6 +20,8 @@ final class NotchModel: ObservableObject {
     @Published var avatarColor = "auto"
     @Published var look = CGSize.zero
     @Published var blink = false
+    @Published var dictation: DictationPhase = .idle
+    @Published var level: Float = 0
     var wantsFocus = false
     var replyThread = ""
 
@@ -52,6 +54,14 @@ final class NotchModel: ObservableObject {
         if !reply.isEmpty || streaming || !errorText.isEmpty { h = 134 + replyHeight + (steps.isEmpty ? 0 : 28) + CGFloat(min(pending.count, 2)) * 74 }
         else if !nextEvent.isEmpty { h += 24 }
         return min(h, Self.maxHeight)
+    }
+
+    var pillExtra: CGFloat {
+        switch dictation {
+        case .idle: return 0
+        case .listening, .thinking, .done: return 80
+        case .failed: return 170
+        }
     }
 
     var sticky: Bool { !text.isEmpty || streaming || !pending.isEmpty }

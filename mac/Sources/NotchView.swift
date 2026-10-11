@@ -9,13 +9,14 @@ struct NotchView: View {
     private let closeSpring = Animation.spring(response: 0.38, dampingFraction: 1.0)
 
     var body: some View {
-        let w = m.expanded ? m.openSize.width : m.closedSize.width
+        let pillW = m.closedSize.width + m.pillExtra
+        let w = m.expanded ? m.openSize.width : pillW
         let h = m.expanded ? contentHeight : m.closedSize.height
         let shape = NotchShape(topRadius: m.expanded ? 16 : 5, bottomRadius: m.expanded ? 26 : 8)
         ZStack(alignment: .top) {
             shape.fill(Color.black)
             collapsed
-                .frame(width: m.closedSize.width, height: m.closedSize.height, alignment: .top)
+                .frame(width: pillW, height: m.closedSize.height, alignment: .top)
                 .opacity(m.expanded ? 0 : 1)
                 .animation(.easeOut(duration: 0.12), value: m.expanded)
                 .contentShape(Rectangle())
@@ -32,6 +33,7 @@ struct NotchView: View {
         .shadow(color: .black.opacity(m.expanded ? 0.4 : 0), radius: 16, y: 8)
         .animation(m.expanded ? openSpring : closeSpring, value: m.expanded)
         .animation(openSpring, value: contentHeight)
+        .animation(openSpring, value: m.dictation)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
     }
@@ -46,7 +48,9 @@ struct NotchView: View {
         HStack(spacing: 8) {
             bot(20).padding(.leading, 8)
             Spacer(minLength: 0)
-            if !m.pending.isEmpty {
+            if m.dictation != .idle {
+                dictationIndicator.padding(.trailing, 14)
+            } else if !m.pending.isEmpty {
                 Text("\(m.pending.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
                     .frame(minWidth: 16, minHeight: 16).background(Color.white, in: Capsule()).padding(.trailing, 12)
             } else if m.busy || m.streaming {
@@ -54,6 +58,17 @@ struct NotchView: View {
             } else if !m.online {
                 Circle().stroke(Color.white.opacity(0.5), lineWidth: 1.2).frame(width: 7, height: 7).padding(.trailing, 14)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var dictationIndicator: some View {
+        switch m.dictation {
+        case .listening: LevelBars(level: CGFloat(m.level))
+        case .thinking: BusyBars()
+        case .done: Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+        case .failed(let msg): Text(msg).font(.system(size: 11, weight: .medium)).foregroundStyle(Color(red: 1, green: 0.45, blue: 0.43)).lineLimit(1)
+        case .idle: EmptyView()
         }
     }
 
@@ -145,6 +160,21 @@ struct NotchView: View {
             .buttonStyle(.plain).disabled(m.text.isEmpty || m.streaming).accessibilityLabel("Wyślij")
         }
         .onChange(of: m.expanded) { _, on in if on && m.wantsFocus { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { focused = true } } }
+    }
+}
+
+struct LevelBars: View {
+    var level: CGFloat
+    private let weights: [CGFloat] = [0.55, 0.85, 1, 0.8, 0.5]
+
+    var body: some View {
+        HStack(spacing: 2.5) {
+            ForEach(0..<5, id: \.self) { i in
+                Capsule().fill(Color.white).frame(width: 2.5, height: 4 + 12 * min(1, level * weights[i]))
+            }
+        }
+        .frame(height: 16)
+        .animation(.easeOut(duration: 0.09), value: level)
     }
 }
 

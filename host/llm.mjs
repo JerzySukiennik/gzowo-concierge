@@ -108,6 +108,13 @@ async function claude({ system, contents, tools }) {
   return { candidates: [{ content: { role: 'model', parts }, finishReason: res.stop_reason }], usage: res.usage };
 }
 
+export async function claudeText({ system, prompt, maxTokens = 2048 }) {
+  const secret = getSecret('anthropic');
+  if (!secret?.apiKey) throw new Error('Brak klucza Anthropic.');
+  const res = await call({ model: HAIKU, max_tokens: maxTokens, system, messages: [{ role: 'user', content: String(prompt) }] }, secret);
+  return (res.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+}
+
 export function chatGenerate(args) {
   return getChatModel() === 'haiku' ? claude(args) : gemini(args);
 }

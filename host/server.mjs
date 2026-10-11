@@ -12,6 +12,7 @@ import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
+import { getDictionary, saveDictionary, addWord, removeWord, getDictation, setDictation, handleDictateUpgrade } from './dictation.mjs';
 import { modelInfo, setChatModel, saveAnthropicKey, removeAnthropicKey } from './llm.mjs';
 import { getBrief, setBrief, runBrief, startBrief } from './brief.mjs';
 import { addSubscription, removeSubscription, vapidPublicKey } from './push.mjs';
@@ -112,6 +113,14 @@ async function api(req, res, url) {
       return json(res, 200, await saveAnthropicKey(await readBody(req)));
     } catch (err) { return json(res, 400, { error: String(err.message || err) }); }
   }
+  if (p === '/api/dictionary') {
+    if (req.method === 'POST') { const b = await readBody(req); if (b.remove) return json(res, 200, { words: removeWord(String(b.remove)) }); if (b.term) return json(res, 200, { words: addWord(b.term, b.aliases) }); if (Array.isArray(b.words)) return json(res, 200, { words: saveDictionary(b.words) }); return json(res, 400, { error: 'term, remove or words required' }); }
+    return json(res, 200, { words: getDictionary() });
+  }
+  if (p === '/api/dictation') {
+    if (req.method === 'POST') { try { return json(res, 200, setDictation(await readBody(req))); } catch (err) { return json(res, 400, { error: String(err.message || err) }); } }
+    return json(res, 200, getDictation());
+  }
   if (p === '/api/brief') {
     if (req.method === 'POST') setBrief(await readBody(req));
     return json(res, 200, { ...getBrief(), vapid: vapidPublicKey() });
@@ -157,6 +166,10 @@ const server = http.createServer(async (req, res) => {
 
 server.on('upgrade', (req, socket) => {
   const url = new URL(req.url, 'http://x');
+  if (url.pathname === '/dictate') {
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
+    handleDictateUpgrade(req, socket); return;
+  }
   if (url.pathname !== '/live' || !authorized(req)) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return; }
   handleLiveUpgrade(req, socket);
 });

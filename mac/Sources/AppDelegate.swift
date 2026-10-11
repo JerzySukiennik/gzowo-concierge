@@ -8,6 +8,7 @@ import AppKit
     private let model = AppModel()
     private let notch = NotchController()
     private let briefNotifier = BriefNotifier()
+    private lazy var dictation = DictationController(hud: notch.model)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyAppearance()
@@ -42,6 +43,7 @@ import AppKit
             self?.model.select(thread)
         }
         briefNotifier.start()
+        dictation.start()
         notch.start()
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
@@ -61,6 +63,11 @@ import AppKit
         UserDefaults.standard.set(sender.representedObject as? String ?? "light", forKey: "appearance")
         applyAppearance()
         windowController.web.reload()
+    }
+
+    @objc private func toggleDictation(_ sender: NSMenuItem) {
+        dictation.enabled.toggle()
+        sender.state = dictation.enabled ? .on : .off
     }
 
     @objc private func toggleNotch(_ sender: NSMenuItem) {
@@ -164,6 +171,9 @@ import AppKit
         let dock = NSMenuItem(title: "Dock w notchu", action: #selector(toggleNotch(_:)), keyEquivalent: ""); dock.target = self
         dock.state = notch.enabled ? .on : .off
         view.addItem(dock)
+        let dict = NSMenuItem(title: "Dyktowanie (⌃⌥)", action: #selector(toggleDictation(_:)), keyEquivalent: ""); dict.target = self
+        dict.state = dictation.enabled ? .on : .off
+        view.addItem(dict)
         view.addItem(.separator())
         let reload = NSMenuItem(title: "Przeładuj", action: #selector(reload), keyEquivalent: "r"); reload.target = self
         view.addItem(reload)
