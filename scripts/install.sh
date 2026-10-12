@@ -20,7 +20,7 @@ cat > "$PL" <<PLIST
 <plist version="1.0"><dict>
 <key>Label</key><string>$LABEL</string>
 <key>ProgramArguments</key><array>
-<string>/usr/bin/caffeinate</string><string>-is</string><string>$NODE</string><string>$RT/host/server.mjs</string>
+<string>/usr/bin/caffeinate</string><string>-i</string><string>$NODE</string><string>$RT/host/server.mjs</string>
 </array>
 <key>WorkingDirectory</key><string>$RT</string>
 <key>RunAtLoad</key><true/>
