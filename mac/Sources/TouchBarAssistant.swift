@@ -28,6 +28,8 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     private var showingReply = false
     private var caretOn = true
     private var caretTimer: Timer?
+    private var typed = ""
+    private let debug = ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] != nil
     private let key = "touchBarEnabled"
 
     private typealias Present = @convention(c) (AnyObject, Selector, NSTouchBar, Int, NSString) -> Void
@@ -50,7 +52,23 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
 
     private static var dfr: UnsafeMutableRawPointer? = dlopen("/System/Library/PrivateFrameworks/DFRFoundation.framework/DFRFoundation", RTLD_NOW)
 
-    func start() { if enabled { install() } }
+    func start() {
+        if enabled { install() }
+        if debug {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.present() }
+            NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] e in
+                self?.trace("keyDown \(e.characters ?? "?") window=\(e.window.map { String(describing: type(of: $0)) } ?? "nil") key=\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "nil") responder=\(String(describing: NSApp.keyWindow?.firstResponder).prefix(40))")
+                return e
+            }
+        }
+    }
+
+    private func trace(_ s: String) {
+        guard debug else { return }
+        let line = "\(Date()) \(s)\n"
+        if let h = FileHandle(forWritingAtPath: "/tmp/tb-debug.log") { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+        else { try? line.write(toFile: "/tmp/tb-debug.log", atomically: true, encoding: .utf8) }
+    }
 
     private func install() {
         guard stripItem == nil, let h = Self.dfr, let sym = dlsym(h, "DFRElementSetControlStripPresenceForIdentifier") else { return }
@@ -103,6 +121,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         let sel = NSSelectorFromString("presentSystemModalTouchBar:placement:systemTrayItemIdentifier:")
         unsafeBitCast(method_getImplementation(sym), to: Present.self)(NSTouchBar.self, sel, b, 1, NSTouchBarItem.Identifier.conciergeStrip.rawValue as NSString)
         presented = true
+        typed = ""
         openCatcher()
         updateLabel()
         caretTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
@@ -128,15 +147,15 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     }
 
     private func openCatcher() {
-        let p = CatcherPanel(contentRect: NSRect(x: 0, y: 0, width: 2, height: 2), styleMask: [.borderless], backing: .buffered, defer: false)
+        let p = CatcherPanel(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
         p.alphaValue = 0
         p.hasShadow = false
         p.ignoresMouseEvents = true
-        p.level = .normal
+        p.level = .floating
         p.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
-        let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 2, height: 2))
+        let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         f.delegate = self
         f.isBordered = false
         f.drawsBackground = false
@@ -148,6 +167,17 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         NSApp.activate(ignoringOtherApps: true)
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(f)
+        for delay in [0.12, 0.4] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.presented, let p = self.catcher, let f = self.field else { return }
+                if !p.isKeyWindow || p.firstResponder == nil || !(p.firstResponder is NSTextView) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    p.makeKeyAndOrderFront(nil)
+                    p.makeFirstResponder(f)
+                }
+                self.trace("key window: \(p.isKeyWindow) responder: \(String(describing: p.firstResponder)) active: \(NSApp.isActive)")
+            }
+        }
     }
 
     func touchBar(_ touchBar: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
@@ -194,7 +224,6 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
             label.textColor = model.errorText.isEmpty ? .white : NSColor(red: 1, green: 0.45, blue: 0.43, alpha: 1)
             return
         }
-        let typed = field?.stringValue ?? ""
         if typed.isEmpty {
             label.stringValue = "Napisz do Concierge" + (caretOn ? "  ▏" : "")
             label.textColor = NSColor.white.withAlphaComponent(0.5)
@@ -212,15 +241,19 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     // MARK: typing
 
     func controlTextDidChange(_ obj: Notification) {
+        typed = (obj.userInfo?["NSFieldEditor"] as? NSText)?.string ?? field?.stringValue ?? ""
+        trace("typed: \(typed)")
         showingReply = false
         updateLabel()
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            let text = (field?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            trace("enter: \(text)")
             guard !text.isEmpty, !model.streaming else { return true }
-            field?.stringValue = ""
+            textView.string = ""
+            typed = ""
             showingReply = true
             model.agentMode = false
             model.text = text
