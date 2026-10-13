@@ -55,7 +55,9 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     func start() {
         if enabled { install() }
         if debug {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.present() }
+            DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.tb-test"), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.presented == true ? self?.close() : self?.present(); self?.trace("toggled via test notification") }
+            }
             NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] e in
                 self?.trace("keyDown \(e.characters ?? "?") window=\(e.window.map { String(describing: type(of: $0)) } ?? "nil") key=\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "nil") responder=\(String(describing: NSApp.keyWindow?.firstResponder).prefix(40))")
                 return e
@@ -146,6 +148,10 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         previousApp = nil
     }
 
+    private static func sendWindowsBack() {
+        for w in NSApp.windows where w.isVisible && !(w is NSPanel) { w.orderBack(nil) }
+    }
+
     private func openCatcher() {
         let p = CatcherPanel(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
         p.isOpaque = false
@@ -164,9 +170,11 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         p.setFrameOrigin(NSPoint(x: 0, y: 0))
         catcher = p
         field = f
+        let wasOurs = NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
         NSApp.activate(ignoringOtherApps: true)
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(f)
+        if !wasOurs { for delay in [0.0, 0.05, 0.15, 0.4] { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { Self.sendWindowsBack() } } }
         for delay in [0.12, 0.4] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self, self.presented, let p = self.catcher, let f = self.field else { return }
