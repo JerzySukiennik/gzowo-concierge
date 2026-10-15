@@ -25,6 +25,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     private var previousApp: NSRunningApplication?
     private var cancellables = Set<AnyCancellable>()
     private var presented = false
+    private var madeRegular = false
     private var showingReply = false
     private var caretOn = true
     private var caretTimer: Timer?
@@ -83,6 +84,40 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         _ = (NSTouchBarItem.self as AnyObject).perform(NSSelectorFromString("addSystemTrayItem:"), with: item)
         unsafeBitCast(sym, to: Presence.self)(NSTouchBarItem.Identifier.conciergeStrip.rawValue as NSString, true)
         stripItem = item
+        startHeartbeat()
+    }
+
+    private var lastPolicy: NSApplication.ActivationPolicy = .regular
+    private var heartbeat: Timer?
+
+    private func startHeartbeat() {
+        heartbeat?.invalidate()
+        lastPolicy = NSApp.activationPolicy()
+        heartbeat = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.heal() }
+        }
+    }
+
+    private func heal() {
+        guard enabled, let h = Self.dfr, let sym = dlsym(h, "DFRElementSetControlStripPresenceForIdentifier") else { return }
+        let policy = NSApp.activationPolicy()
+        if policy != lastPolicy, !presented {
+            lastPolicy = policy
+            stripItem = nil
+            install()
+            return
+        }
+        unsafeBitCast(sym, to: Presence.self)(NSTouchBarItem.Identifier.conciergeStrip.rawValue as NSString, true)
+    }
+
+    func policyChanged() {
+        guard enabled, !presented else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.lastPolicy = NSApp.activationPolicy()
+            self.stripItem = nil
+            self.install()
+        }
     }
 
     private func remove() {
@@ -91,6 +126,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         unsafeBitCast(sym, to: Presence.self)(NSTouchBarItem.Identifier.conciergeStrip.rawValue as NSString, false)
         if let item = stripItem { _ = (NSTouchBarItem.self as AnyObject).perform(NSSelectorFromString("removeSystemTrayItem:"), with: item) }
         stripItem = nil
+        heartbeat?.invalidate(); heartbeat = nil
     }
 
     private static func stripImage() -> NSImage {
@@ -146,10 +182,15 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         if !(NSApp.windows.contains { $0.isVisible && !($0 is NSPanel) }) { NSApp.hide(nil) }
         previousApp?.activate(options: [])
         previousApp = nil
+        if madeRegular {
+            madeRegular = false
+            if !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) { NSApp.setActivationPolicy(.accessory) }
+            lastPolicy = NSApp.activationPolicy()
+        }
     }
 
     private static func sendWindowsBack() {
-        for w in NSApp.windows where w.isVisible && !(w is NSPanel) { w.orderBack(nil) }
+        for w in NSApp.windows where w.isVisible && w.canBecomeMain { w.orderBack(nil) }
     }
 
     private func openCatcher() {
@@ -171,6 +212,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         catcher = p
         field = f
         let wasOurs = NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular); madeRegular = true }
         NSApp.activate(ignoringOtherApps: true)
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(f)

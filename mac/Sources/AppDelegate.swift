@@ -60,6 +60,7 @@ import AppKit
                 : AgentState(active: true, step: 2, total: 5, narration: "Wpisuję imię i nazwisko")
         }
         touchBarAssistant.start()
+        NotificationCenter.default.addObserver(forName: .conciergePolicyChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.touchBarAssistant.policyChanged() } }
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
         model.onNewThread = { [weak self] in self?.notch.model.agentHistory = []; self?.screenAgent.newSession() }

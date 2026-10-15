@@ -132,7 +132,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func show() {
         guard let window else { return }
-        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular); NotificationCenter.default.post(name: .conciergePolicyChanged, object: nil) }
         if window.isMiniaturized { window.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -141,7 +141,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func hide() {
         web.call("closeLive()")
         window?.orderOut(nil)
-        if islandOn { NSApp.setActivationPolicy(.accessory) }
+        if islandOn { NSApp.setActivationPolicy(.accessory); NotificationCenter.default.post(name: .conciergePolicyChanged, object: nil) }
     }
 
     func toggle() { isShown ? hide() : show() }
@@ -151,3 +151,5 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         return false
     }
 }
+
+extension Notification.Name { static let conciergePolicyChanged = Notification.Name("fun.gzowo.concierge.policy-changed") }
