@@ -15,11 +15,14 @@ private final class CatcherPanel: NSPanel {
 }
 
 @MainActor
-final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate {
+final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate, NSScrubberDataSource, NSScrubberFlowLayoutDelegate {
     private let model: NotchModel
     private var bar: NSTouchBar?
     private var stripItem: NSCustomTouchBarItem?
     private var label: NSTextField?
+    private var scrubber: NSScrubber?
+    private var chunks: [String] = []
+    private let replyFont = NSFont.systemFont(ofSize: 15, weight: .medium)
     private var catcher: CatcherPanel?
     private var field: NSTextField?
     private var previousApp: NSRunningApplication?
@@ -30,6 +33,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     private var caretOn = true
     private var caretTimer: Timer?
     private var typed = ""
+    private var draft = ""
     private let debug = ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] != nil
     private let key = "touchBarEnabled"
 
@@ -56,6 +60,15 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     func start() {
         if enabled { install() }
         if debug {
+            DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.tb-test-reply"), object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.model.reply = String(repeating: "To jest bardzo długa odpowiedź Concierge, która nie mieści się w jednej linii Touch Bara. ", count: 6)
+                    self.showingReply = true
+                    self.updateLabel()
+                    self.trace("injected reply; scrubber hidden=\(self.scrubber?.isHidden ?? true) content=\(self.scrubber?.scrubberLayout.scrubberContentSize ?? .zero)")
+                }
+            }
             DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.tb-test"), object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.presented == true ? self?.close() : self?.present(); self?.trace("toggled via test notification") }
             }
@@ -155,11 +168,12 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         b.delegate = self
         b.defaultItemIdentifiers = [.conciergeClose, .conciergeText, .conciergeOpen]
         bar = b
-        showingReply = false
+        typed = draft
+        showingReply = draft.isEmpty && (!model.reply.isEmpty || model.streaming || !model.errorText.isEmpty)
+        trace("present: draft='\(draft)' showingReply=\(showingReply)")
         let sel = NSSelectorFromString("presentSystemModalTouchBar:placement:systemTrayItemIdentifier:")
         unsafeBitCast(method_getImplementation(sym), to: Present.self)(NSTouchBar.self, sel, b, 1, NSTouchBarItem.Identifier.conciergeStrip.rawValue as NSString)
         presented = true
-        typed = ""
         openCatcher()
         updateLabel()
         caretTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: true) { [weak self] _ in
@@ -170,6 +184,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     private func close() {
         guard presented else { return }
         presented = false
+        draft = typed
         caretTimer?.invalidate(); caretTimer = nil
         if let b = bar, let m = class_getClassMethod(NSTouchBar.self, NSSelectorFromString("dismissSystemModalTouchBar:")) {
             unsafeBitCast(method_getImplementation(m), to: Dismiss.self)(NSTouchBar.self, NSSelectorFromString("dismissSystemModalTouchBar:"), b)
@@ -207,6 +222,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         f.isBordered = false
         f.drawsBackground = false
         f.focusRingType = .none
+        f.stringValue = typed
         p.contentView = f
         p.setFrameOrigin(NSPoint(x: 0, y: 0))
         catcher = p
@@ -216,6 +232,7 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         NSApp.activate(ignoringOtherApps: true)
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(f)
+        (f.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: (typed as NSString).length, length: 0))
         if !wasOurs { for delay in [0.0, 0.05, 0.15, 0.4] { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { Self.sendWindowsBack() } } }
         for delay in [0.12, 0.4] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -238,15 +255,36 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
             return item
         case .conciergeText:
             let item = NSCustomTouchBarItem(identifier: identifier)
+            let box = NSView()
+            box.translatesAutoresizingMaskIntoConstraints = false
+            box.widthAnchor.constraint(equalToConstant: 520).isActive = true
+            box.heightAnchor.constraint(equalToConstant: 30).isActive = true
             let l = NSTextField(labelWithString: "")
             l.font = .systemFont(ofSize: 15, weight: .medium)
-            l.lineBreakMode = .byTruncatingTail
+            l.lineBreakMode = .byTruncatingHead
             l.maximumNumberOfLines = 1
             l.alignment = .left
             l.translatesAutoresizingMaskIntoConstraints = false
-            l.widthAnchor.constraint(equalToConstant: 520).isActive = true
+            box.addSubview(l)
+            let sc = NSScrubber()
+            sc.register(NSScrubberTextItemView.self, forItemIdentifier: NSUserInterfaceItemIdentifier("chunk"))
+            let flow = NSScrubberFlowLayout()
+            flow.itemSpacing = 0
+            sc.scrubberLayout = flow
+            sc.dataSource = self
+            sc.delegate = self
+            sc.mode = .free
+            sc.showsAdditionalContentIndicators = true
+            sc.isContinuous = false
+            sc.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(sc)
+            NSLayoutConstraint.activate([
+                l.leadingAnchor.constraint(equalTo: box.leadingAnchor), l.trailingAnchor.constraint(equalTo: box.trailingAnchor), l.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+                sc.leadingAnchor.constraint(equalTo: box.leadingAnchor), sc.trailingAnchor.constraint(equalTo: box.trailingAnchor), sc.topAnchor.constraint(equalTo: box.topAnchor), sc.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            ])
             label = l
-            item.view = l
+            scrubber = sc
+            item.view = box
             updateLabel()
             return item
         case .conciergeOpen:
@@ -267,13 +305,17 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
         guard let label else { return }
         if showingReply {
             let line: String
+            var color = NSColor.white
             if model.streaming && model.reply.isEmpty { line = model.steps.last ?? "Myślę…" }
-            else if !model.errorText.isEmpty { line = model.errorText }
+            else if !model.errorText.isEmpty { line = model.errorText; color = NSColor(red: 1, green: 0.45, blue: 0.43, alpha: 1) }
             else { line = NotchText.plain(model.reply).replacingOccurrences(of: "\n", with: " ") }
-            label.stringValue = line.isEmpty ? "…" : line
-            label.textColor = model.errorText.isEmpty ? .white : NSColor(red: 1, green: 0.45, blue: 0.43, alpha: 1)
+            setReplyChunks(line.isEmpty ? "…" : line, color: color)
+            label.isHidden = true
+            scrubber?.isHidden = false
             return
         }
+        label.isHidden = false
+        scrubber?.isHidden = true
         if typed.isEmpty {
             label.stringValue = "Napisz do Concierge" + (caretOn ? "  ▏" : "")
             label.textColor = NSColor.white.withAlphaComponent(0.5)
@@ -281,6 +323,39 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
             label.stringValue = typed + (caretOn ? "▏" : "")
             label.textColor = .white
         }
+    }
+
+    private var chunkColor = NSColor.white
+
+    private func setReplyChunks(_ text: String, color: NSColor) {
+        var out: [String] = []
+        var cur = ""
+        for word in text.split(separator: " ", omittingEmptySubsequences: true) {
+            if cur.count + word.count + 1 > 60, !cur.isEmpty { out.append(cur + " "); cur = "" }
+            cur += (cur.isEmpty ? "" : " ") + word
+        }
+        if !cur.isEmpty { out.append(cur) }
+        let changed = out != chunks || color != chunkColor
+        chunks = out
+        chunkColor = color
+        if changed { scrubber?.reloadData() }
+        trace("reply chunks: \(chunks.count)")
+    }
+
+    func numberOfItems(for scrubber: NSScrubber) -> Int { chunks.count }
+
+    func scrubber(_ scrubber: NSScrubber, viewForItemAt index: Int) -> NSScrubberItemView {
+        let v = scrubber.makeItem(withIdentifier: NSUserInterfaceItemIdentifier("chunk"), owner: nil) as? NSScrubberTextItemView ?? NSScrubberTextItemView()
+        v.title = chunks[index]
+        v.textField.font = replyFont
+        v.textField.textColor = chunkColor
+        v.textField.lineBreakMode = .byClipping
+        return v
+    }
+
+    func scrubber(_ scrubber: NSScrubber, layout: NSScrubberFlowLayout, sizeForItemAt itemIndex: Int) -> NSSize {
+        let w = (chunks[itemIndex] as NSString).size(withAttributes: [.font: replyFont]).width
+        return NSSize(width: ceil(w) + 6, height: 30)
     }
 
     private func refreshReply() {
