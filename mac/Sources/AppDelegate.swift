@@ -66,11 +66,17 @@ import AppKit
         model.onNewThread = { [weak self] in self?.notch.model.agentHistory = []; self?.screenAgent.newSession() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
         monitor.start()
-        windowController.show()
+        LoginAgent.sync()
+        if !(LoginAgent.launchedAsIsland && notch.enabled) { windowController.show() }
     }
 
     private func applyAppearance() {
         NSApp.appearance = NSAppearance(named: .aqua)
+    }
+
+    @objc private func toggleLoginStart(_ sender: NSMenuItem) {
+        LoginAgent.enabled.toggle()
+        sender.state = LoginAgent.enabled ? .on : .off
     }
 
     @objc private func toggleTouchBar(_ sender: NSMenuItem) {
@@ -185,6 +191,9 @@ import AppKit
         let tb = NSMenuItem(title: "Asystent na Touch Barze", action: #selector(toggleTouchBar(_:)), keyEquivalent: ""); tb.target = self
         tb.state = touchBarAssistant.enabled ? .on : .off
         view.addItem(tb)
+        let ls = NSMenuItem(title: "Uruchamiaj przy logowaniu (sama wyspa)", action: #selector(toggleLoginStart(_:)), keyEquivalent: ""); ls.target = self
+        ls.state = LoginAgent.enabled ? .on : .off
+        view.addItem(ls)
         view.addItem(.separator())
         let reload = NSMenuItem(title: "Przeładuj", action: #selector(reload), keyEquivalent: "r"); reload.target = self
         view.addItem(reload)
