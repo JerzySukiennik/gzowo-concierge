@@ -12,6 +12,15 @@ import AppKit
     private lazy var screenAgent = ScreenAgentController(hud: notch.model)
     private lazy var touchBarAssistant = TouchBarAssistant(model: notch.model)
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        guard ProcessInfo.processInfo.environment["CONCIERGE_BASE"] == nil, ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] == nil,
+              let id = Bundle.main.bundleIdentifier else { return }
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        guard let existing = others.first else { return }
+        if !LoginAgent.launchedAsIsland { existing.activate(options: []) }
+        exit(0)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyAppearance()
         installMainMenu()
