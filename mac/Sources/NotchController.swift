@@ -61,6 +61,7 @@ final class NotchController {
             Task { @MainActor in self?.layoutForScreen(); self?.resizePanel() }
         }
         installMonitors()
+        startFullscreenWatch()
         layoutForScreen()
         apply()
     }
@@ -79,6 +80,7 @@ final class NotchController {
         layoutForScreen()
         panel.ignoresMouseEvents = true
         panel.setFrame(panelFrame, display: true)
+        refreshFullscreen()
     }
 
     private func layoutForScreen() {
@@ -111,12 +113,45 @@ final class NotchController {
         panel.setFrame(panelFrame, display: false)
     }
 
+    private var hiddenForFullscreen = false
+
+    private func screenIsFullscreen() -> Bool {
+        guard let primary = NSScreen.screens.first else { return false }
+        let f = screen.frame
+        let target = CGRect(x: f.minX, y: primary.frame.height - f.maxY, width: f.width, height: f.height)
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0, let b = w[kCGWindowBounds as String] as? [String: Any] else { continue }
+            let r = CGRect(x: b["X"] as? Double ?? -1, y: b["Y"] as? Double ?? -1, width: b["Width"] as? Double ?? 0, height: b["Height"] as? Double ?? 0)
+            if abs(r.minX - target.minX) < 1.5 && abs(r.minY - target.minY) < 1.5 && abs(r.width - target.width) < 1.5 && abs(r.height - target.height) < 1.5 { return true }
+        }
+        return false
+    }
+
+    func refreshFullscreen() {
+        guard enabled, let panel else { return }
+        let hide = screenIsFullscreen() && model.agent.ask == nil
+        guard hide != hiddenForFullscreen else { return }
+        hiddenForFullscreen = hide
+        if hide { collapse(); panel.orderOut(nil) } else { panel.setFrame(panelFrame, display: true); panel.orderFrontRegardless() }
+    }
+
+    private func startFullscreenWatch() {
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.refreshFullscreen(); try? await Task.sleep(for: .milliseconds(700)); self?.refreshFullscreen() }
+            }
+        }
+        Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in Task { @MainActor in self?.refreshFullscreen() } }
+    }
+
     private func apply() {
         guard let panel else { return }
         if enabled {
             panel.setFrame(panelFrame, display: true)
             panel.ignoresMouseEvents = true
-            panel.orderFrontRegardless()
+            if !hiddenForFullscreen { panel.orderFrontRegardless() }
         } else {
             collapse()
             panel.orderOut(nil)
@@ -183,7 +218,7 @@ final class NotchController {
     }
 
     private func mouseMoved() {
-        guard enabled else { return }
+        guard enabled, !hiddenForFullscreen else { return }
         let p = NSEvent.mouseLocation
         if !model.expanded && !model.agent.visible && model.dictation == .idle,
            let s = NSScreen.screens.first(where: { $0.frame.contains(p) }), s != screen { follow(s) }
