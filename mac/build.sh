@@ -19,3 +19,9 @@ sleep 0.5
 rm -rf "$DEST/Gzowo Concierge.app"
 ditto "$APP" "$DEST/Gzowo Concierge.app"
 echo "installed: $DEST/Gzowo Concierge.app"
+AGENT="$HOME/Library/LaunchAgents/fun.gzowo.concierge.mac.plist"
+if [ -f "$AGENT" ] && [ "${NO_RELAUNCH:-}" = "" ]; then
+  launchctl bootout "gui/$(id -u)/fun.gzowo.concierge.mac" 2>/dev/null || true
+  sleep 0.5
+  launchctl bootstrap "gui/$(id -u)" "$AGENT" 2>/dev/null && echo "relaunched: island mode"
+fi

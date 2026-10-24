@@ -8,6 +8,7 @@ import AppKit
     private let model = AppModel()
     private let notch = NotchController()
     private let briefNotifier = BriefNotifier()
+    private let lidFold = LidFoldController()
     private lazy var dictation = DictationController(hud: notch.model)
     private lazy var screenAgent = ScreenAgentController(hud: notch.model)
     private lazy var touchBarAssistant = TouchBarAssistant(model: notch.model)
@@ -69,6 +70,7 @@ import AppKit
                 : AgentState(active: true, step: 2, total: 5, narration: "Wpisuję imię i nazwisko")
         }
         touchBarAssistant.start()
+        lidFold.start()
         NotificationCenter.default.addObserver(forName: .conciergePolicyChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.touchBarAssistant.policyChanged() } }
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
@@ -82,6 +84,13 @@ import AppKit
     private func applyAppearance() {
         NSApp.appearance = NSAppearance(named: .aqua)
     }
+
+    @objc private func toggleLidFold(_ sender: NSMenuItem) {
+        lidFold.enabled.toggle()
+        sender.state = lidFold.enabled ? .on : .off
+    }
+
+    @objc private func showLidFold() { lidFold.playDemo() }
 
     @objc private func toggleLoginStart(_ sender: NSMenuItem) {
         LoginAgent.enabled.toggle()
@@ -203,6 +212,13 @@ import AppKit
         let ls = NSMenuItem(title: "Uruchamiaj przy logowaniu (sama wyspa)", action: #selector(toggleLoginStart(_:)), keyEquivalent: ""); ls.target = self
         ls.state = LoginAgent.enabled ? .on : .off
         view.addItem(ls)
+        if lidFold.available {
+            let lf = NSMenuItem(title: "Animacja klapy", action: #selector(toggleLidFold(_:)), keyEquivalent: ""); lf.target = self
+            lf.state = lidFold.enabled ? .on : .off
+            view.addItem(lf)
+            let ld = NSMenuItem(title: "Pokaż animację klapy", action: #selector(showLidFold), keyEquivalent: ""); ld.target = self
+            view.addItem(ld)
+        }
         view.addItem(.separator())
         let reload = NSMenuItem(title: "Przeładuj", action: #selector(reload), keyEquivalent: "r"); reload.target = self
         view.addItem(reload)

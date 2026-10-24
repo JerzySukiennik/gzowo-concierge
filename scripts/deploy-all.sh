@@ -37,7 +37,7 @@ fi
 if [ $MAC = 1 ]; then
   WAS=$(pgrep -x Concierge || true)
   ./mac/build.sh >/tmp/deploy-mac.log 2>&1 && echo "mac app: built and installed" || echo "mac app: FAILED (see /tmp/deploy-mac.log)"
-  [ -n "$WAS" ] && open "/Applications/Gzowo Concierge.app"
+  [ -n "$WAS" ] && [ ! -f "$HOME/Library/LaunchAgents/fun.gzowo.concierge.mac.plist" ] && open "/Applications/Gzowo Concierge.app"
 fi
 
 echo "$HEAD_SHA" > "$MARK"
