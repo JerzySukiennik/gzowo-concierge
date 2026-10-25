@@ -1,11 +1,11 @@
-// Gzowo Concierge for macOS - lid fold: reads the hinge angle sensor and folds a frosted snapshot of the built-in screen as the lid closes and opens.
+// Gzowo Concierge for macOS - lid fold: as the lid closes, the screen image stays where it stood, seen through the lid as through glass that frosts and darkens; driven by the hinge angle sensor.
 import AppKit
 import CoreImage
 import IOKit.hid
 import QuartzCore
 import ScreenCaptureKit
 
-final class LidAngleSensor {
+final class LidAngleSensor: @unchecked Sendable {
     private let manager: IOHIDManager
     private var device: IOHIDDevice?
 
@@ -27,6 +27,16 @@ final class LidAngleSensor {
     }
 }
 
+@_silgen_name("CGSMainConnectionID") private func CGSMainConnectionID() -> Int32
+@_silgen_name("CGSSetWindowBackgroundBlurRadius") private func CGSSetWindowBackgroundBlurRadius(_ cid: Int32, _ wid: UInt32, _ radius: Int32) -> Int32
+
+private typealias WindowGrab = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+private let windowGrab: WindowGrab? = {
+    guard let h = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW),
+          let f = dlsym(h, "CGWindowListCreateImage") else { return nil }
+    return unsafeBitCast(f, to: WindowGrab.self)
+}()
+
 private let foldCI = CIContext(options: [.useSoftwareRenderer: false])
 
 private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
@@ -34,142 +44,186 @@ private func smoothstep(_ a: Double, _ b: Double, _ x: Double) -> Double {
     return t * t * (3 - 2 * t)
 }
 
-@MainActor
-final class FoldOverlay {
-    private let window: NSWindow
-    private let card = CALayer()
-    private let sharp = CALayer()
-    private let soft = CALayer()
-    private let heavy = CALayer()
-    private let frost = CALayer()
-    private let shade = CAGradientLayer()
-    private let sheen = CAGradientLayer()
-    private let size: CGSize
+private func easeOut(_ x: Double) -> Double {
+    let t = min(max(x, 0), 1)
+    return 1 - (1 - t) * (1 - t)
+}
 
-    init(screen: NSScreen, image: CGImage?) {
-        size = screen.frame.size
-        window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        window.isOpaque = true
-        window.backgroundColor = .black
-        window.hasShadow = false
-        window.ignoresMouseEvents = true
-        window.level = .screenSaver
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        window.setFrame(screen.frame, display: false)
-        let view = NSView(frame: CGRect(origin: .zero, size: size))
-        view.wantsLayer = true
-        window.contentView = view
-        guard let host = view.layer else { return }
+private enum Fold {
+    static let eyeDistance = 2.6
+    static let eyeHeight = 0.6
+    static let hinge = 0.0
+    static let vanish = atan2(eyeDistance, eyeHeight)
+    static let span = vanish - 6 * Double.pi / 180
+    static let maxBlur = 64.0
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        host.backgroundColor = NSColor.black.cgColor
-        card.anchorPoint = .zero
-        card.bounds = CGRect(origin: .zero, size: size)
-        card.position = .zero
-        card.backgroundColor = NSColor.black.cgColor
-        host.addSublayer(card)
-
-        for l in [sharp, soft, heavy] {
-            l.frame = card.bounds
-            l.contentsGravity = .resize
-            l.minificationFilter = .linear
-            l.magnificationFilter = .linear
-            card.addSublayer(l)
-        }
-        sharp.contents = image
-        soft.opacity = 0
-        heavy.opacity = 0
-
-        frost.frame = card.bounds
-        frost.backgroundColor = NSColor(white: 0.92, alpha: 1).cgColor
-        frost.opacity = 0
-        card.addSublayer(frost)
-
-        sheen.frame = CGRect(x: 0, y: 0, width: size.width, height: size.height * 0.5)
-        sheen.colors = [NSColor(white: 1, alpha: 0).cgColor, NSColor(white: 1, alpha: 0.35).cgColor, NSColor(white: 1, alpha: 0).cgColor]
-        sheen.startPoint = CGPoint(x: 0.5, y: 0)
-        sheen.endPoint = CGPoint(x: 0.5, y: 1)
-        sheen.opacity = 0
-        card.addSublayer(sheen)
-
-        shade.frame = card.bounds
-        shade.colors = [NSColor.black.withAlphaComponent(0).cgColor, NSColor.black.cgColor]
-        shade.startPoint = CGPoint(x: 0.5, y: 0)
-        shade.endPoint = CGPoint(x: 0.5, y: 1)
-        shade.opacity = 0
-        card.addSublayer(shade)
-        CATransaction.commit()
-    }
-
-    func setBlurred(soft s: CGImage?, heavy h: CGImage?) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        soft.contents = s
-        heavy.contents = h
-        CATransaction.commit()
-    }
-
-    func show() { window.orderFrontRegardless() }
-
-    /// Projects the picture so it stays fixed in space while the panel turns about the hinge by `delta` radians.
-    /// A point (x, y) of the picture lands on the panel at (u, v) = ((K x + Ex sin d y) / w, (Ez y) / w) with
-    /// K = Ez cos d - Ey sin d and w = sin d (y - Ey) + Ez cos d, seen from an eye at (Ex, Ey, Ez) in front of the screen.
-    private func homography(_ delta: CGFloat) -> CATransform3D {
-        let ex = size.width / 2, ey = size.height * 0.6, ez = size.height * 3.0
-        let sd = sin(delta), cd = cos(delta)
-        let k = ez * cd - ey * sd
+    static func plate(_ delta: Double, height: Double) -> CATransform3D? {
+        let s = sin(delta), c = cos(delta)
+        let k = eyeDistance * c - eyeHeight * s
+        guard k > 0.01 else { return nil }
         var t = CATransform3DIdentity
-        t.m11 = k; t.m21 = ex * sd; t.m41 = 0
-        t.m12 = 0; t.m22 = ez; t.m42 = 0
-        t.m14 = 0; t.m24 = sd; t.m44 = k
-        t.m33 = 1
+        t.m22 = CGFloat(eyeDistance / k)
+        t.m24 = CGFloat(s / (k * height))
         return t
     }
+}
 
-    func update(progress p: Double, delta: Double) {
+@MainActor
+final class FoldOverlay {
+    let screenFrame: CGRect
+    private let imageWindow: NSWindow
+    private let glassWindow: NSWindow
+    private let plate = CALayer()
+    private let sharp = CALayer()
+    private let vivid = CALayer()
+    private let dim = CAGradientLayer()
+    private let crease = CAGradientLayer()
+    private let cid = CGSMainConnectionID()
+    private var radius: Int32 = -1
+
+    init(screen: NSScreen) {
+        screenFrame = screen.frame
+        let size = screen.frame.size
+        imageWindow = Self.window(screen.frame, opaque: true, level: .screenSaver)
+        glassWindow = Self.window(screen.frame, opaque: false, level: NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1))
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let tilt = 38 * (1 - (1 - p) * (1 - p))
-        card.transform = homography(CGFloat(min(tilt, max(delta, 0)) * .pi / 180))
-        let so = smoothstep(0.05, 0.45, p), ho = smoothstep(0.4, 0.85, p)
-        soft.opacity = Float(so)
-        heavy.opacity = Float(ho)
-        sharp.isHidden = so > 0.995 && soft.contents != nil
-        soft.isHidden = ho > 0.995 && heavy.contents != nil
-        frost.opacity = Float(0.2 * smoothstep(0.15, 0.8, p))
-        sheen.opacity = Float(sin(.pi * min(p * 1.1, 1)) * 0.6)
-        sheen.position = CGPoint(x: size.width / 2, y: size.height * (1.15 - 1.2 * CGFloat(p)))
-        shade.opacity = Float(smoothstep(0.3, 0.95, p))
-        card.opacity = Float(1 - smoothstep(0.88, 1, p))
+        if let host = imageWindow.contentView?.layer {
+            host.backgroundColor = NSColor.black.cgColor
+            plate.bounds = CGRect(origin: .zero, size: size)
+            plate.anchorPoint = CGPoint(x: 0.5, y: -Fold.hinge)
+            plate.position = CGPoint(x: size.width / 2, y: -Fold.hinge * size.height)
+            plate.allowsEdgeAntialiasing = true
+            for l in [sharp, vivid] {
+                l.frame = plate.bounds
+                l.contentsGravity = .resize
+                l.minificationFilter = .trilinear
+                l.allowsEdgeAntialiasing = true
+                plate.addSublayer(l)
+            }
+            vivid.opacity = 0
+            host.addSublayer(plate)
+        }
+        if let host = glassWindow.contentView?.layer {
+            dim.frame = host.bounds
+            dim.colors = [NSColor.black.cgColor, NSColor.black.withAlphaComponent(0.8).cgColor]
+            dim.startPoint = CGPoint(x: 0.5, y: 0)
+            dim.endPoint = CGPoint(x: 0.5, y: 1)
+            dim.opacity = 0
+            host.addSublayer(dim)
+            crease.frame = host.bounds
+            crease.colors = [NSColor.black.cgColor, NSColor.black.withAlphaComponent(0.45).cgColor, NSColor.black.withAlphaComponent(0).cgColor]
+            crease.locations = [0, 0.09, 0.22]
+            crease.startPoint = CGPoint(x: 0.5, y: 0)
+            crease.endPoint = CGPoint(x: 0.5, y: 1)
+            crease.opacity = 0
+            host.addSublayer(crease)
+        }
         CATransaction.commit()
     }
 
-    func dismiss() {
-        let w = window
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.28
-            w.animator().alphaValue = 0
-        }, completionHandler: { w.orderOut(nil) })
+    private static func window(_ frame: CGRect, opaque: Bool, level: NSWindow.Level) -> NSWindow {
+        let w = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        w.isOpaque = opaque
+        w.backgroundColor = opaque ? .black : NSColor.black.withAlphaComponent(0.002)
+        w.hasShadow = false
+        w.ignoresMouseEvents = true
+        w.isReleasedWhenClosed = false
+        w.animationBehavior = .none
+        w.level = level
+        w.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        w.setFrame(frame, display: false)
+        let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        view.wantsLayer = true
+        w.contentView = view
+        return w
+    }
+
+    var glassID: UInt32 { UInt32(glassWindow.windowNumber) }
+    var hasImage: Bool { sharp.contents != nil }
+
+    func showGlass() {
+        setBlur(0)
+        glassWindow.orderFrontRegardless()
+    }
+
+    func setImage(_ img: CGImage) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sharp.contents = img
+        vivid.contents = nil
+        plate.transform = CATransform3DIdentity
+        plate.isHidden = false
+        CATransaction.commit()
+        imageWindow.orderFrontRegardless()
+    }
+
+    func setVivid(_ img: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        vivid.contents = img
+        CATransaction.commit()
+    }
+
+    func update(frost p: Double, geometry delta: Double) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if hasImage {
+            if let t = Fold.plate(delta, height: screenFrame.height) {
+                plate.transform = t
+                plate.isHidden = false
+            } else {
+                plate.isHidden = true
+            }
+        }
+        vivid.opacity = Float(easeOut(p / 0.7))
+        dim.opacity = Float(0.5 * easeOut(p / 0.7) + 0.5 * smoothstep(0.7, 1, p))
+        crease.opacity = Float(0.5 * easeOut(p / 0.6))
+        CATransaction.commit()
+        setBlur(Int32((Fold.maxBlur * easeOut(p / 0.55)).rounded()))
+    }
+
+    func hide() {
+        imageWindow.orderOut(nil)
+        glassWindow.orderOut(nil)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sharp.contents = nil
+        vivid.contents = nil
+        dim.opacity = 0
+        crease.opacity = 0
+        CATransaction.commit()
+        setBlur(0)
+    }
+
+    private func setBlur(_ r: Int32) {
+        guard r != radius else { return }
+        radius = r
+        _ = CGSSetWindowBackgroundBlurRadius(cid, glassID, r)
     }
 }
 
 @MainActor
 final class LidFoldController {
     private let sensor = LidAngleSensor()
-    private var timer: Timer?
+    private let pollQueue = DispatchQueue(label: "fun.gzowo.concierge.lid.poll", qos: .userInteractive)
+    private let grabQueue = DispatchQueue(label: "fun.gzowo.concierge.lid.grab", qos: .userInteractive)
+    private var source: DispatchSourceTimer?
     private var fast = false
+    private var observing = false
     private var smoothed: Double = 110
     private var lastRaw: Double = 110
     private var rest: Double = 110
     private var stillSince = Date()
     private var overlay: FoldOverlay?
-    private var snapshot: CGImage?
-    private var blurred: (CGImage?, CGImage?)?
-    private var capturing = false
+    private var active = false
+    private var frost: Double = 0
+    private var geometry: Double = 0
+    private var cycle = 0
     private var demo: [Double] = []
+    private var demoImage: CGImage?
     private let key = "lidFoldEnabled"
-    private static let end: Double = 16
 
     var available: Bool { sensor != nil }
 
@@ -179,29 +233,41 @@ final class LidFoldController {
     }
 
     func start() {
-        guard enabled, sensor != nil, timer == nil else { return }
-        if let a = sensor?.angle() { smoothed = a; lastRaw = a; rest = max(70, a) }
-        schedule(fast: false)
-        let ws = NSWorkspace.shared.notificationCenter
-        ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.stillSince = Date(); self?.schedule(fast: true) }
+        guard enabled, let sensor, source == nil else { return }
+        if let a = sensor.angle() { smoothed = a; lastRaw = a; rest = max(60, a) }
+        let s = DispatchSource.makeTimerSource(queue: pollQueue)
+        s.setEventHandler { [weak self] in
+            let a = sensor.angle()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.reading(a) } }
         }
-        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.lid-demo"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.playDemo() }
+        s.schedule(deadline: .now(), repeating: 1.0 / 30, leeway: .milliseconds(2))
+        s.resume()
+        source = s
+        fast = false
+        warmUp()
+        guard !observing else { return }
+        observing = true
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stillSince = Date(); self?.warmUp() }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.lid-demo"), object: nil, queue: .main) { [weak self] note in
+            let path = note.object as? String
+            MainActor.assumeIsolated { self?.playDemo(imagePath: path) }
         }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
-        overlay?.dismiss()
-        overlay = nil
-        snapshot = nil
-        blurred = nil
+        source?.cancel()
+        source = nil
+        demo = []
+        finish()
     }
 
-    func playDemo() {
-        guard overlay == nil else { return }
+    func playDemo(imagePath: String? = nil) {
+        guard source != nil, !active, demo.isEmpty else { return }
+        if let path = imagePath, let ns = NSImage(contentsOfFile: path) {
+            demoImage = ns.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
         let top = max(rest, 100)
         var seq: [Double] = []
         let n = 90
@@ -214,94 +280,125 @@ final class LidFoldController {
         smoothed = top
         lastRaw = top
         stillSince = Date()
-        schedule(fast: true)
+        setRate(fast: true)
     }
 
-    private func schedule(fast f: Bool) {
-        if timer != nil && fast == f { return }
+    private func setRate(fast f: Bool) {
+        guard f != fast, let source else { return }
         fast = f
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: f ? 1.0 / 60 : 0.12, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
-        }
+        source.schedule(deadline: .now(), repeating: f ? 1.0 / 60 : 1.0 / 30, leeway: .milliseconds(2))
     }
 
     private static var builtinScreen: NSScreen? {
-        NSScreen.screens.first { s in
-            guard let n = s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
-            return CGDisplayIsBuiltin(n.uint32Value) != 0
-        }
+        NSScreen.screens.first { displayID($0).map { CGDisplayIsBuiltin($0) != 0 } ?? false }
     }
 
-    private func tick() {
+    private static func displayID(_ screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+
+    private func reading(_ value: Double?) {
         let demoMode = !demo.isEmpty
-        guard let raw = demoMode ? demo.removeFirst() : sensor?.angle() else { return }
+        guard let raw = demoMode ? demo.removeFirst() : value else { return }
+        if demo.isEmpty && demoMode { demoImage = nil }
         let now = Date()
         if abs(raw - lastRaw) > 0.9 { stillSince = now }
         lastRaw = raw
-        smoothed += (raw - smoothed) * (fast ? 0.5 : 1)
-        let a = smoothed
-        if overlay == nil && now.timeIntervalSince(stillSince) > 1.2 && a > 60 { rest = a }
+        smoothed += (raw - smoothed) * (active ? 0.55 : 1)
+        let still = now.timeIntervalSince(stillSince)
 
-        let start = rest - 7
-        let p = min(max((start - a) / (start - Self.end), 0), 1)
+        if !active {
+            if still > 1 && raw > 45 { rest = raw }
+            guard rest - raw >= 1 else { setRate(fast: demoMode); return }
+            begin()
+        }
 
-        if snapshot == nil && !capturing && a < rest - 2.5 { capture() }
+        var goal = max(0, rest - smoothed) * .pi / 180
+        if !demoMode && still > 0.6 && goal < Fold.span * 0.85 {
+            rest = smoothed
+            goal = 0
+        }
+        setRate(fast: demoMode || still < 1)
+        frost += (goal - frost) * 0.6
+        if overlay?.hasImage == true { geometry += (goal - geometry) * 0.3 }
+        overlay?.update(frost: min(frost / Fold.span, 1), geometry: geometry)
+        if goal < 0.004 && frost < 0.004 && geometry < 0.006 { finish() }
+    }
 
-        if p > 0.002 {
-            schedule(fast: true)
-            if overlay == nil, let screen = Self.builtinScreen, snapshot != nil || !CGPreflightScreenCaptureAccess() {
-                let o = FoldOverlay(screen: screen, image: snapshot)
-                if let b = blurred { o.setBlurred(soft: b.0, heavy: b.1) }
-                o.show()
-                overlay = o
-            }
-            overlay?.update(progress: p, delta: rest - a)
-            if !demoMode && now.timeIntervalSince(stillSince) > 1.5 && p < 0.7 {
-                overlay?.dismiss()
-                overlay = nil
-                snapshot = nil
-                blurred = nil
-                rest = max(60, a)
-            }
-        } else {
-            if let o = overlay { o.update(progress: 0, delta: 0); o.dismiss(); overlay = nil }
-            if a >= rest - 1.5 && !capturing { snapshot = nil; blurred = nil }
-            let settle = !demoMode && overlay == nil && a >= rest - 2.5 && now.timeIntervalSince(stillSince) > 0.6
-            if settle { schedule(fast: false) }
+    private func begin() {
+        guard let screen = Self.builtinScreen else { return }
+        if overlay?.screenFrame != screen.frame { overlay?.hide(); overlay = FoldOverlay(screen: screen) }
+        guard let overlay else { return }
+        active = true
+        cycle += 1
+        frost = 0
+        geometry = 0
+        setRate(fast: true)
+        overlay.showGlass()
+        if let img = demoImage { show(img, cycle: cycle) } else { grab(screen, below: overlay.glassID, cycle: cycle) }
+    }
+
+    private func finish() {
+        guard active else { return }
+        active = false
+        cycle += 1
+        frost = 0
+        geometry = 0
+        overlay?.hide()
+    }
+
+    private func show(_ img: CGImage, cycle c: Int) {
+        overlay?.setImage(img)
+        geometry = 0
+        grabQueue.async { [weak self] in
+            let v = Self.vivid(img)
+            DispatchQueue.main.async { MainActor.assumeIsolated { if let self, self.cycle == c { self.overlay?.setVivid(v) } } }
         }
     }
 
-    private func capture() {
-        guard let screen = Self.builtinScreen, CGPreflightScreenCaptureAccess(),
-              let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return }
-        capturing = true
-        let id = num.uint32Value
+    private func grab(_ screen: NSScreen, below wid: UInt32, cycle c: Int) {
+        guard CGPreflightScreenCaptureAccess(), let id = Self.displayID(screen) else { return }
+        let bounds = CGDisplayBounds(id)
         let scale = screen.backingScaleFactor
+        grabQueue.async { [weak self] in
+            let img = windowGrab?(bounds, 1 << 2, wid, 1 << 3)?.takeRetainedValue()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.cycle == c, self.active else { return }
+                    if let img { self.show(img, cycle: c) } else { self.grabFallback(id, scale: scale, cycle: c) }
+                }
+            }
+        }
+    }
+
+    private func grabFallback(_ id: CGDirectDisplayID, scale: CGFloat, cycle c: Int) {
         Task {
-            defer { Task { @MainActor in self.capturing = false } }
             guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
                   let display = content.displays.first(where: { $0.displayID == id }) else { return }
+            let mine = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
             let cfg = SCStreamConfiguration()
             cfg.width = Int(CGFloat(display.width) * scale)
             cfg.height = Int(CGFloat(display.height) * scale)
             cfg.showsCursor = false
-            guard let img = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: display, excludingWindows: []), configuration: cfg) else { return }
-            await MainActor.run { self.snapshot = img }
-            let blurs = await Task.detached(priority: .userInitiated) { () -> (CGImage?, CGImage?) in
-                (Self.blur(img, sigma: 9), Self.blur(img, sigma: 26))
-            }.value
-            await MainActor.run {
-                self.blurred = blurs
-                self.overlay?.setBlurred(soft: blurs.0, heavy: blurs.1)
-            }
+            let filter = SCContentFilter(display: display, excludingApplications: mine, exceptingWindows: [])
+            guard let img = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg),
+                  cycle == c, active else { return }
+            show(img, cycle: c)
         }
     }
 
-    nonisolated private static func blur(_ img: CGImage, sigma: Double) -> CGImage? {
-        let small = CIImage(cgImage: img).transformed(by: CGAffineTransform(scaleX: 0.25, y: 0.25))
-        let ext = small.extent
-        let out = small.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: ext)
-        return foldCI.createCGImage(out, from: ext)
+    private func warmUp() {
+        guard CGPreflightScreenCaptureAccess() else { return }
+        grabQueue.async {
+            _ = windowGrab?(CGRect(x: 0, y: 0, width: 8, height: 8), 1, 0, 0)?.takeRetainedValue()
+            let tiny = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 16, height: 16))
+            _ = foldCI.createCGImage(tiny.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8]), from: tiny.extent)
+        }
+    }
+
+    nonisolated private static func vivid(_ img: CGImage) -> CGImage? {
+        let src = CIImage(cgImage: img).transformed(by: CGAffineTransform(scaleX: 0.5, y: 0.5))
+        let out = src.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.8])
+        return foldCI.createCGImage(out, from: src.extent)
     }
 }
