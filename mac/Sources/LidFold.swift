@@ -213,9 +213,15 @@ final class LidFoldController {
     private var fast = false
     private var observing = false
     private var smoothed: Double = 110
-    private var lastRaw: Double = 110
+    private var anchor: Double = 110
+    private var stillMax: Double = 110
     private var rest: Double = 110
     private var stillSince = Date()
+    private var smallSince = Date()
+    private var lastFinish = Date.distantPast
+    private var armed = false
+    private var userActed = false
+    private var inputMonitor: Any?
     private var overlay: FoldOverlay?
     private var active = false
     private var frost: Double = 0
@@ -234,7 +240,7 @@ final class LidFoldController {
 
     func start() {
         guard enabled, let sensor, source == nil else { return }
-        if let a = sensor.angle() { smoothed = a; lastRaw = a; rest = max(60, a) }
+        if let a = sensor.angle() { smoothed = a; anchor = a; stillMax = a; rest = max(60, a) }
         let s = DispatchSource.makeTimerSource(queue: pollQueue)
         s.setEventHandler { [weak self] in
             let a = sensor.angle()
@@ -251,9 +257,16 @@ final class LidFoldController {
             MainActor.assumeIsolated { self?.stillSince = Date(); self?.warmUp() }
         }
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.lid-demo"), object: nil, queue: .main) { [weak self] note in
-            let path = note.object as? String
-            MainActor.assumeIsolated { self?.playDemo(imagePath: path) }
+            let arg = note.object as? String
+            MainActor.assumeIsolated { arg == "jitter" ? self?.playJitter() : self?.playDemo(imagePath: arg) }
         }
+    }
+
+    private func playJitter() {
+        guard source != nil, !active, demo.isEmpty else { return }
+        let top = rest.rounded()
+        demo = (0..<240).map { $0 % 2 == 0 ? top : top - 1 } + (0..<120).map { $0 % 3 == 0 ? top - 2 : top }
+        setRate(fast: true)
     }
 
     func stop() {
@@ -278,7 +291,8 @@ final class LidFoldController {
         demo = seq
         rest = top
         smoothed = top
-        lastRaw = top
+        anchor = top
+        stillMax = top
         stillSince = Date()
         setRate(fast: true)
     }
@@ -302,22 +316,28 @@ final class LidFoldController {
         guard let raw = demoMode ? demo.removeFirst() : value else { return }
         if demo.isEmpty && demoMode { demoImage = nil }
         let now = Date()
-        if abs(raw - lastRaw) > 0.9 { stillSince = now }
-        lastRaw = raw
+        if abs(raw - anchor) >= 2 { anchor = raw; stillMax = raw; stillSince = now } else { stillMax = max(stillMax, raw) }
         smoothed += (raw - smoothed) * (active ? 0.55 : 1)
         let still = now.timeIntervalSince(stillSince)
 
         if !active {
-            if still > 1 && raw > 45 { rest = raw }
-            guard rest - raw >= 1 else { setRate(fast: demoMode); return }
+            if still > 1 && stillMax > 45 { rest = stillMax }
+            let drop = rest - raw
+            let ready = drop >= 2 && (drop >= 5 || now.timeIntervalSince(lastFinish) > 0.8)
+            if ready && !armed { armed = true; setRate(fast: true); return }
+            guard ready else { armed = false; setRate(fast: demoMode); return }
+            armed = false
             begin()
+            smallSince = now
         }
 
         var goal = max(0, rest - smoothed) * .pi / 180
-        if !demoMode && still > 0.6 && goal < Fold.span * 0.85 {
-            rest = smoothed
+        if goal >= 8 * .pi / 180 { smallSince = now }
+        if goal < Fold.span * 0.85 && (still > 0.6 || userActed || now.timeIntervalSince(smallSince) > 1.5) {
+            rest = max(smoothed, stillMax)
             goal = 0
         }
+        userActed = false
         setRate(fast: demoMode || still < 1)
         frost += (goal - frost) * 0.6
         if overlay?.hasImage == true { geometry += (goal - geometry) * 0.3 }
@@ -335,6 +355,10 @@ final class LidFoldController {
         geometry = 0
         setRate(fast: true)
         overlay.showGlass()
+        userActed = false
+        inputMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel, .keyDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.userActed = true }
+        }
         if let img = demoImage { show(img, cycle: cycle) } else { grab(screen, below: overlay.glassID, cycle: cycle) }
     }
 
@@ -344,6 +368,8 @@ final class LidFoldController {
         cycle += 1
         frost = 0
         geometry = 0
+        lastFinish = Date()
+        if let m = inputMonitor { NSEvent.removeMonitor(m); inputMonitor = nil }
         overlay?.hide()
     }
 
