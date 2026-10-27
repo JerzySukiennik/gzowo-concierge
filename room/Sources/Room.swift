@@ -214,6 +214,23 @@ final class Room: LiveEvents {
         if phase != .asleep { setPhase(.listening); setStreaming(true); armSilence(8) }
     }
 
+    func liveThinking() {
+        guard phase != .asleep, phase != .speaking else { return }
+        setPhase(.thinking)
+        setStreaming(false)
+        answered = false
+        waitForAnswer(25)
+    }
+
+    private func waitForAnswer(_ seconds: TimeInterval) {
+        silenceTimer?.invalidate()
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+            guard let self, !self.answered, self.phase != .asleep, self.phase != .speaking else { return }
+            NSLog("room: no answer, closing")
+            self.endSession()
+        }
+    }
+
     func liveTool(id: String, name: String, args: [String: Any]) {
         setPhase(.thinking)
         setStreaming(false)
@@ -225,11 +242,7 @@ final class Room: LiveEvents {
             NSLog("room: tool \(name) \(args) -> \(result)")
             link?.sendToolResult(id: id, name: name, response: result)
             toolsInFlight = max(0, toolsInFlight - 1)
-            silenceTimer?.invalidate()
-            silenceTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
-                guard let self, !self.answered, self.phase == .thinking else { return }
-                self.endSession()
-            }
+            waitForAnswer(15)
         }
     }
 
@@ -245,7 +258,12 @@ final class Room: LiveEvents {
 
     private func speechFinished() {
         guard turnDone, phase != .asleep, toolsInFlight == 0 else { return }
-        if phase == .thinking && !answered { return }
+        if !answered {
+            turnDone = false
+            if phase != .thinking { setPhase(.thinking); setStreaming(false) }
+            waitForAnswer(15)
+            return
+        }
         turnDone = false
         if assistantText.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") {
             assistantText = ""

@@ -133,7 +133,7 @@ export function handleLiveUpgrade(req, socket) {
     return new Promise(resolve => {
       const timer = setTimeout(() => { roomCalls.delete(id); resolve({ error: 'Głośnik w pokoju nie odpowiedział.' }); }, 25000);
       roomCalls.set(id, r => { clearTimeout(timer); resolve(r); });
-      tell({ type: 'tool', id, name: call.name, args: call.args || {} });
+      tell({ type: 'room-tool', id, name: call.name, args: call.args || {} });
     });
   }
 
