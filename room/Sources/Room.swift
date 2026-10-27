@@ -48,6 +48,7 @@ final class Room: LiveEvents {
         tools.lastUserSpeech = { [weak self] in (self?.userText ?? "", self?.userAt ?? .distantPast) }
         tools.alarms.onFire = { [weak self] a in self?.ring(a) }
         face.onUserInput = { [weak self] in self?.userTapped() }
+        face.start()
         if let path = Bundle.main.resourceURL?.appendingPathComponent("model").path { wake = WakeWord(modelPath: path) }
         wake?.onWake = { [weak self] follows in
             guard let self else { return }
@@ -96,7 +97,7 @@ final class Room: LiveEvents {
             return
         }
         if !commandFollows { audio.effect("wake", volume: 0.6) }
-        face.show(.listening)
+        face.wake(.listening)
         beginSession(replay: utterance)
     }
 
@@ -173,7 +174,7 @@ final class Room: LiveEvents {
         audio.stopSpeech()
         phase = .asleep
         flushOffline()
-        if ringing == nil { face.hide(sleepDisplay: true) }
+        if ringing == nil { face.sleep() }
     }
 
     func liveReady() {
@@ -354,7 +355,7 @@ final class Room: LiveEvents {
         ringing = a
         NSLog("room: ringing \(a.kind) \(a.label)")
         let label = a.label.isEmpty ? (a.kind == "alarm" ? "Pobudka" : "Timer") : a.label
-        face.show(.ringing)
+        face.wake(.ringing)
         face.model.caption = label
         if a.kind == "alarm" {
             audio.effect("alarm", loops: -1)
@@ -372,13 +373,16 @@ final class Room: LiveEvents {
         audio.stopEffect("alarm")
         audio.stopEffect("timer")
         ringing = nil
-        if phase == .asleep { face.hide(sleepDisplay: true) } else { face.model.caption = "" }
+        if phase == .asleep { face.sleep() } else { face.model.caption = "" }
     }
 
     private func userTapped() {
         if ringing != nil { stopRinging() }
         else if phase != .asleep { endSession() }
+        else { face.stepAside(minutes: 10) }
     }
+
+    func snapshot(_ path: String) { face.snapshot(to: path) }
 
     func playTest(_ path: String) {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let r = d.range(of: Data("data".utf8)), r.upperBound + 4 < d.count else { return }

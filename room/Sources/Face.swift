@@ -1,14 +1,16 @@
-// Concierge Pokój - full-screen face on a black screen: the Concierge avatar whose eyes follow the person in front of the camera.
+// Concierge Pokój - the Concierge avatar always on screen: asleep and dimmed between conversations, awake with eyes that follow the person in front of the camera.
 import AppKit
 import AVFoundation
+import IOKit.graphics
 import IOKit.pwr_mgt
+import QuartzCore
 import SwiftUI
 import Vision
 
-enum FacePhase { case listening, thinking, speaking, ringing, idle }
+enum FacePhase { case sleeping, listening, thinking, speaking, ringing }
 
 final class FaceModel: ObservableObject {
-    @Published var phase: FacePhase = .idle
+    @Published var phase: FacePhase = .sleeping
     @Published var look = CGSize.zero
     @Published var level: CGFloat = 0
     @Published var caption = ""
@@ -33,32 +35,34 @@ struct FaceView: View {
     var body: some View {
         GeometryReader { geo in
             let size = min(geo.size.width, geo.size.height) * 0.46
-            let eyeW = size * 0.11
+            let asleep = model.phase == .sleeping
+            let eyeW = size * (asleep ? 0.13 : 0.11)
             let base: CGFloat = {
                 switch model.phase {
+                case .sleeping: return 0.028
                 case .listening: return 0.3
                 case .thinking: return 0.12
                 case .speaking: return 0.2 + model.level * 0.14
                 case .ringing: return 0.36
-                case .idle: return 0.24
                 }
             }()
-            let eyeH = size * base * (model.blink ? 0.1 : 1)
-            let look = model.phase == .thinking ? CGSize(width: 0.5, height: -0.7) : model.look
+            let eyeH = size * base * (model.blink && !asleep ? 0.1 : 1)
+            let look = model.phase == .thinking ? CGSize(width: 0.5, height: -0.7) : (asleep ? CGSize(width: 0, height: 0.45) : model.look)
             ZStack {
                 Color.black
                 VStack(spacing: size * 0.16) {
                     ZStack {
-                        FaceBody(kind: model.shape).fill(Color.white)
+                        FaceBody(kind: model.shape).fill(Color(white: asleep ? 0.34 : 1))
                         HStack(spacing: size * 0.17) {
                             Capsule().fill(Color.black).frame(width: eyeW, height: max(eyeH, 3))
                             Capsule().fill(Color.black).frame(width: eyeW, height: max(eyeH, 3))
                         }
                         .offset(x: look.width * size * 0.13, y: look.height * size * 0.09)
                         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: look)
-                        .animation(.easeOut(duration: model.blink ? 0.06 : 0.12), value: eyeH)
+                        .animation(.easeOut(duration: model.blink ? 0.06 : (asleep ? 0.5 : 0.18)), value: eyeH)
                     }
                     .frame(width: size, height: size)
+                    .animation(.easeInOut(duration: 0.6), value: asleep)
                     .scaleEffect(model.phase == .thinking ? 0.97 : 1)
                     .animation(model.phase == .thinking ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: model.phase)
                     Text(model.caption)
@@ -83,24 +87,81 @@ final class FaceWindow: NSWindow {
 
 final class FaceScreen {
     let model = FaceModel()
+    var onUserInput: () -> Void = {}
     private var window: FaceWindow?
+    private var host: NSView?
+    private var overlay: NSView?
+    private var zLayers: [CATextLayer] = []
     private let tracker = FaceTracker()
     private var blinkTimer: Timer?
+    private var brightnessTimer: Timer?
     private var activity: IOPMAssertionID = 0
-    var onUserInput: () -> Void = {}
+    private var asideUntil = Date.distantPast
+    private let headless = ProcessInfo.processInfo.environment["ROOM_HEADLESS"] != nil
 
     init() {
         tracker.onLook = { [weak self] look in self?.model.look = look }
     }
 
-    var visible: Bool { window?.isVisible == true && (window?.alphaValue ?? 0) > 0.5 }
+    var asleep: Bool { model.phase == .sleeping }
 
-    private let headless = ProcessInfo.processInfo.environment["ROOM_HEADLESS"] != nil
+    func start() {
+        guard !headless else { return }
+        present()
+        sleep()
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.window?.isVisible == false && Date() >= self.asideUntil { self.present() }
+            if self.asleep { self.setBrightness(Self.sleepBrightness(), over: 3) }
+        }
+    }
 
-    func show(_ phase: FacePhase) {
+    func wake(_ phase: FacePhase) {
         model.phase = phase
         guard !headless else { return }
         IOPMAssertionDeclareUserActivity("Concierge Pokoj" as CFString, kIOPMUserActiveLocal, &activity)
+        asideUntil = .distantPast
+        present()
+        stopSleepAnimations()
+        setBrightness(0.8, over: 0.4)
+        tracker.start()
+        startBlinking()
+    }
+
+    func sleep() {
+        model.phase = .sleeping
+        model.caption = ""
+        model.look = .zero
+        guard !headless else { return }
+        tracker.stop()
+        blinkTimer?.invalidate()
+        blinkTimer = nil
+        startSleepAnimations()
+        setBrightness(Self.sleepBrightness(), over: 2.5)
+    }
+
+    func stepAside(minutes: Double) {
+        guard !headless, let w = window else { return }
+        asideUntil = Date().addingTimeInterval(minutes * 60)
+        setBrightness(0.7, over: 0.3)
+        NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.3; w.animator().alphaValue = 0 }, completionHandler: { w.orderOut(nil) })
+    }
+
+    func snapshot(to path: String) {
+        typealias Grab = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let w = window, let h = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW),
+              let f = dlsym(h, "CGWindowListCreateImage"),
+              let img = unsafeBitCast(f, to: Grab.self)(.null, 1 << 3, UInt32(w.windowNumber), 1 << 3)?.takeRetainedValue(),
+              let data = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: URL(fileURLWithPath: path))
+    }
+
+    private static func sleepBrightness() -> Float {
+        let h = Calendar.current.component(.hour, from: Date())
+        return (h >= 22 || h < 7) ? 0.02 : 0.12
+    }
+
+    private func present() {
         guard let screen = NSScreen.main else { return }
         let w = window ?? makeWindow(screen)
         window = w
@@ -110,28 +171,9 @@ final class FaceScreen {
             w.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
             w.makeKey()
-            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.25; w.animator().alphaValue = 1 }
+            NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.4; w.animator().alphaValue = 1 }
         }
-        tracker.start()
-        startBlinking()
-    }
-
-    func hide(sleepDisplay: Bool) {
-        guard !headless else { model.caption = ""; return }
-        tracker.stop()
-        blinkTimer?.invalidate()
-        blinkTimer = nil
-        model.caption = ""
-        guard let w = window, w.isVisible else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.6; w.animator().alphaValue = 0 }, completionHandler: {
-            w.orderOut(nil)
-            let idle = CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) } ?? 999
-            guard sleepDisplay, idle > 90 else { return }
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-            p.arguments = ["displaysleepnow"]
-            try? p.run()
-        })
+        NSCursor.setHiddenUntilMouseMoves(true)
     }
 
     private func makeWindow(_ screen: NSScreen) -> FaceWindow {
@@ -142,19 +184,122 @@ final class FaceScreen {
         w.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         w.hasShadow = false
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: FaceView(model: model))
+        let container = NSView(frame: CGRect(origin: .zero, size: screen.frame.size))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+        let hosting = NSHostingView(rootView: FaceView(model: model))
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        hosting.wantsLayer = true
+        container.addSubview(hosting)
+        let over = NSView(frame: container.bounds)
+        over.layer = CALayer()
+        over.wantsLayer = true
+        over.autoresizingMask = [.width, .height]
+        container.addSubview(over)
+        w.contentView = container
+        host = hosting
+        overlay = over
         w.onUserInput = { [weak self] in self?.onUserInput() }
-        NSCursor.setHiddenUntilMouseMoves(true)
         return w
+    }
+
+    private func startSleepAnimations() {
+        guard let layer = host?.layer, let root = overlay?.layer else { return }
+        let b = root.bounds
+        let c = CGPoint(x: b.midX, y: b.midY - min(b.width, b.height) * 0.04)
+        var t = CATransform3DMakeTranslation(c.x, c.y, 0)
+        t = CATransform3DScale(t, 0.975, 0.975, 1)
+        t = CATransform3DTranslate(t, -c.x, -c.y, 0)
+        let breathe = CABasicAnimation(keyPath: "transform")
+        breathe.fromValue = CATransform3DIdentity
+        breathe.toValue = t
+        breathe.duration = 2.6
+        breathe.autoreverses = true
+        breathe.repeatCount = .infinity
+        breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(breathe, forKey: "breathe")
+
+        guard zLayers.isEmpty else { return }
+        let size = min(b.width, b.height) * 0.46
+        let start = CGPoint(x: b.midX + size * 0.42, y: b.midY + size * 0.32)
+        for i in 0..<3 {
+            let z = CATextLayer()
+            z.string = "z"
+            z.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+            z.fontSize = size * (0.09 + CGFloat(i) * 0.03)
+            z.foregroundColor = NSColor(white: 0.4, alpha: 1).cgColor
+            z.contentsScale = window?.backingScaleFactor ?? 2
+            z.alignmentMode = .center
+            z.bounds = CGRect(x: 0, y: 0, width: size * 0.3, height: size * 0.3)
+            z.position = start
+            z.opacity = 0
+            root.addSublayer(z)
+            let rise = CABasicAnimation(keyPath: "position")
+            rise.fromValue = NSValue(point: start)
+            rise.toValue = NSValue(point: CGPoint(x: start.x + size * 0.22, y: start.y + size * 0.42))
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            fade.values = [0, 1, 1, 0]
+            fade.keyTimes = [0, 0.2, 0.7, 1]
+            let group = CAAnimationGroup()
+            rise.duration = 3.6
+            fade.duration = 3.6
+            group.animations = [rise, fade]
+            group.duration = 3.6
+            group.repeatCount = .infinity
+            group.beginTime = CACurrentMediaTime() + Double(i) * 1.2
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            z.add(group, forKey: "float")
+            zLayers.append(z)
+        }
+    }
+
+    private func stopSleepAnimations() {
+        host?.layer?.removeAnimation(forKey: "breathe")
+        zLayers.forEach { $0.removeFromSuperlayer() }
+        zLayers.removeAll()
     }
 
     private func startBlinking() {
         guard blinkTimer == nil else { return }
         blinkTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self, Int.random(in: 0..<4) == 0 else { return }
+            guard let self, !self.asleep, Int.random(in: 0..<4) == 0 else { return }
             self.model.blink = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { self.model.blink = false }
         }
+    }
+
+    private func setBrightness(_ target: Float, over seconds: Double) {
+        brightnessTimer?.invalidate()
+        guard let from = Self.brightness() else { return }
+        let steps = max(1, Int(seconds * 20))
+        var i = 0
+        brightnessTimer = Timer.scheduledTimer(withTimeInterval: seconds / Double(steps), repeats: true) { [weak self] t in
+            i += 1
+            Self.setBrightness(from + (target - from) * Float(i) / Float(steps))
+            if i >= steps { t.invalidate(); self?.brightnessTimer = nil }
+        }
+    }
+
+    private static func displays(_ body: (io_service_t) -> Void) {
+        var it: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &it) == KERN_SUCCESS else { return }
+        var s = IOIteratorNext(it)
+        while s != 0 { body(s); IOObjectRelease(s); s = IOIteratorNext(it) }
+        IOObjectRelease(it)
+    }
+
+    private static func brightness() -> Float? {
+        var value: Float?
+        displays { s in
+            var v: Float = 0
+            if value == nil, IODisplayGetFloatParameter(s, 0, kIODisplayBrightnessKey as CFString, &v) == kIOReturnSuccess { value = v }
+        }
+        return value
+    }
+
+    private static func setBrightness(_ v: Float) {
+        displays { s in IODisplaySetFloatParameter(s, 0, kIODisplayBrightnessKey as CFString, max(0, min(1, v))) }
     }
 }
 

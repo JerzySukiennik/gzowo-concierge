@@ -9,6 +9,9 @@ final class RoomApp: NSObject, NSApplicationDelegate {
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.room-test"), object: nil, queue: .main) { [weak self] note in
             if let path = note.object as? String { self?.room.playTest(path) }
         }
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.room-shot"), object: nil, queue: .main) { [weak self] note in
+            if let path = note.object as? String { self?.room.snapshot(path) }
+        }
     }
 }
 
