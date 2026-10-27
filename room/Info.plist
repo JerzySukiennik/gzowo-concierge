@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>fun.gzowo.concierge.room</string>
+	<key>CFBundleName</key>
+	<string>Concierge Pokój</string>
+	<key>CFBundleDisplayName</key>
+	<string>Concierge Pokój</string>
+	<key>CFBundleExecutable</key>
+	<string>ConciergeRoom</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Concierge Pokój nasłuchuje hasła „Hej Gzowo” na tym komputerze i dopiero po nim rozmawia.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Kamera działa tylko, gdy buźka jest na ekranie, żeby patrzyła na Ciebie.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Concierge Pokój puszcza muzykę w Muzyce i wysyła iMessage w Wiadomościach.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Concierge Pokój czyta kalendarz, gdy główny Mac jest wyłączony.</string>
+</dict>
+</plist>

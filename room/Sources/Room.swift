@@ -1,0 +1,375 @@
+// Concierge Pokój - the room assistant: wake word, one spoken exchange per wake (longer only after a question), host or offline mode, ringing alarms.
+import AppKit
+import Foundation
+
+final class Room: LiveEvents {
+    enum Phase { case asleep, connecting, listening, thinking, speaking }
+
+    private let config: RoomConfig
+    private let audio = AudioIO()
+    private let face = FaceScreen()
+    private let tools: RoomTools
+    private var wake: WakeWord?
+    private let audioQ = DispatchQueue(label: "room.audio")
+    private let streamLock = NSLock()
+    private var streamTarget: LiveLink?
+    private var ring: [Data] = []
+    private var utteranceChunks = 0
+
+    private var phase: Phase = .asleep
+    private var link: LiveLink?
+    private var sessionAudio: [Data] = []
+    private var turnDone = false
+    private var assistantText = ""
+    private var userText = ""
+    private var userAt = Date.distantPast
+    private var heardUser = false
+    private var toolsInFlight = 0
+    private var answered = false
+    private var silenceTimer: Timer?
+    private var ringing: RoomAlarm?
+    private var ringStop: Timer?
+    private var hostBase: String?
+    private var lastPrompt: String?
+    private var offlineTurns: [[String: String]] = []
+    private let promptFile = RoomConfig.dir.appendingPathComponent("prompt.txt")
+    private let turnsFile = RoomConfig.dir.appendingPathComponent("offline-turns.json")
+
+    init() {
+        config = RoomConfig.load()
+        tools = RoomTools(config: config)
+        lastPrompt = try? String(contentsOf: promptFile, encoding: .utf8)
+        if let d = try? Data(contentsOf: turnsFile), let t = try? JSONSerialization.jsonObject(with: d) as? [[String: String]] { offlineTurns = t }
+    }
+
+    func start() {
+        tools.lastUserSpeech = { [weak self] in (self?.userText ?? "", self?.userAt ?? .distantPast) }
+        tools.alarms.onFire = { [weak self] a in self?.ring(a) }
+        face.onUserInput = { [weak self] in self?.userTapped() }
+        if let path = Bundle.main.resourceURL?.appendingPathComponent("model").path { wake = WakeWord(modelPath: path) }
+        wake?.onWake = { [weak self] follows in
+            guard let self else { return }
+            let n = min(self.utteranceChunks, 80)
+            let utterance = follows ? Array(self.ring.suffix(n)) : []
+            DispatchQueue.main.async { self.woke(commandFollows: follows, utterance: utterance) }
+        }
+        audio.onChunk = { [weak self] chunk, level in
+            guard let self else { return }
+            self.audioQ.async { self.feed(chunk) }
+            DispatchQueue.main.async { if self.phase == .listening { self.face.model.level = CGFloat(level) } }
+        }
+        audio.onSpeechIdle = { [weak self] in self?.speechFinished() }
+        do { try audio.start() } catch { NSLog("room: audio failed: \(error.localizedDescription)") }
+        probeHost()
+        Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.probeHost() }
+        NSLog("room: ready, wake=\(wake != nil), hosts=\(config.hosts.count), keys=\(config.geminiKeys.count)")
+    }
+
+    private func feed(_ chunk: Data) {
+        ring.append(chunk)
+        if ring.count > 80 { ring.removeFirst(ring.count - 80) }
+        utteranceChunks += 1
+        if wake?.accept(chunk) == true { utteranceChunks = 0 }
+        streamLock.lock(); let target = streamTarget; streamLock.unlock()
+        target?.sendAudio(chunk)
+    }
+
+    private func setStreaming(_ on: Bool) {
+        streamLock.lock(); streamTarget = on ? link : nil; streamLock.unlock()
+    }
+
+    private func woke(commandFollows: Bool, utterance: [Data]) {
+        NSLog("room: wake (command follows: \(commandFollows), replay \(utterance.count) chunks)")
+        if ringing != nil { stopRinging() }
+        switch phase {
+        case .speaking:
+            audio.stopSpeech()
+            setPhase(.listening)
+            setStreaming(true)
+            armSilence(8)
+            return
+        case .asleep:
+            break
+        default:
+            return
+        }
+        if !commandFollows { audio.effect("wake", volume: 0.6) }
+        face.show(.listening)
+        beginSession(replay: utterance)
+    }
+
+    private func beginSession(replay: [Data]) {
+        setPhase(.connecting)
+        turnDone = false
+        toolsInFlight = 0
+        answered = false
+        assistantText = ""
+        heardUser = !replay.isEmpty
+        sessionAudio = replay
+        if let base = hostBase, let l = HostLink(base: base, token: config.token, tools: tools.declarations(offline: false), rules: rulesNow(offline: false), events: self) {
+            link = l
+        } else {
+            link = direct()
+        }
+        NSLog("room: session via \(link?.viaHost == true ? "host" : "gemini direct")")
+        guard let link else { endSession(); return }
+        for chunk in replay { link.sendAudio(chunk) }
+        setStreaming(true)
+        armSilence(heardUser ? 12 : 8)
+    }
+
+    private func direct() -> LiveLink? {
+        guard !config.geminiKeys.isEmpty else { return nil }
+        let base = lastPrompt ?? "Jesteś Concierge, osobisty asystent Jurka (14 lat, Warszawa). Mów po polsku, krótko i rzeczowo, jak kumpel-inżynier."
+        return DirectLink(keys: config.geminiKeys, model: config.model, voice: config.voice, prompt: "\(base)\n\n\(rulesNow(offline: true))", tools: tools.declarations(offline: true), events: self)
+    }
+
+    private func rulesNow(offline: Bool) -> String {
+        let now = Date()
+        let f = DateFormatter(); f.locale = Locale(identifier: "pl_PL"); f.dateFormat = "EEEE d MMMM yyyy, HH:mm"
+        return "\(RoomTools.rules)\n\(offline ? RoomTools.offlineRules + "\n" : "")Now: \(f.string(from: now)) (Europe/Warsaw); said aloud: \"\(Self.spokenTime(now))\". For a later time of day call room_timers_list or count from this."
+    }
+
+    static func spokenTime(_ d: Date) -> String {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+        let h = c.hour ?? 0, m = c.minute ?? 0
+        let hours = ["zero", "pierwsza", "druga", "trzecia", "czwarta", "piąta", "szósta", "siódma", "ósma", "dziewiąta", "dziesiąta", "jedenasta", "dwunasta", "trzynasta", "czternasta", "piętnasta", "szesnasta", "siedemnasta", "osiemnasta", "dziewiętnasta", "dwudziesta", "dwudziesta pierwsza", "dwudziesta druga", "dwudziesta trzecia"]
+        let ones = ["zero", "jeden", "dwa", "trzy", "cztery", "pięć", "sześć", "siedem", "osiem", "dziewięć", "dziesięć", "jedenaście", "dwanaście", "trzynaście", "czternaście", "piętnaście", "szesnaście", "siedemnaście", "osiemnaście", "dziewiętnaście"]
+        let tens = ["", "", "dwadzieścia", "trzydzieści", "czterdzieści", "pięćdziesiąt"]
+        let minutes: String
+        if m == 0 { minutes = "" }
+        else if m < 10 { minutes = " zero " + ones[m] }
+        else if m < 20 { minutes = " " + ones[m] }
+        else { minutes = " " + tens[m / 10] + (m % 10 == 0 ? "" : " " + ones[m % 10]) }
+        return hours[h] + minutes
+    }
+
+    private func setPhase(_ p: Phase) {
+        phase = p
+        switch p {
+        case .listening, .connecting: face.model.phase = .listening
+        case .thinking: face.model.phase = .thinking
+        case .speaking: face.model.phase = .speaking
+        case .asleep: break
+        }
+    }
+
+    private func armSilence(_ seconds: TimeInterval) {
+        silenceTimer?.invalidate()
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+            guard let self, self.phase == .listening || self.phase == .connecting else { return }
+            self.endSession()
+        }
+    }
+
+    private func endSession() {
+        NSLog("room: session end")
+        silenceTimer?.invalidate()
+        setStreaming(false)
+        link?.close()
+        link = nil
+        audio.stopSpeech()
+        phase = .asleep
+        flushOffline()
+        if ringing == nil { face.hide(sleepDisplay: true) }
+    }
+
+    func liveReady() {
+        if phase == .connecting { setPhase(.listening) }
+    }
+
+    func liveAudio(_ pcm24: Data) {
+        guard phase != .asleep else { return }
+        if phase != .speaking {
+            setStreaming(false)
+            silenceTimer?.invalidate()
+            setPhase(.speaking)
+        }
+        answered = true
+        audio.playSpeech(pcm24)
+        face.model.level = min(1, CGFloat(pcm24.count) / 9600)
+    }
+
+    func liveTranscript(user: Bool, text: String) {
+        if user {
+            userText = text
+            userAt = Date()
+            heardUser = true
+            if phase == .listening { armSilence(10) }
+        } else {
+            assistantText = text
+        }
+    }
+
+    func liveTurnComplete() {
+        NSLog("room: turn - user: \(userText) | assistant: \(assistantText)")
+        turnDone = true
+        if link?.viaHost == false { recordOffline() }
+        if !audio.speaking { speechFinished() }
+    }
+
+    func liveInterrupted() {
+        audio.stopSpeech()
+        if phase != .asleep { setPhase(.listening); setStreaming(true); armSilence(8) }
+    }
+
+    func liveTool(id: String, name: String, args: [String: Any]) {
+        setPhase(.thinking)
+        setStreaming(false)
+        silenceTimer?.invalidate()
+        toolsInFlight += 1
+        answered = false
+        Task { @MainActor in
+            let result = await tools.handle(name, args)
+            NSLog("room: tool \(name) \(args) -> \(result)")
+            link?.sendToolResult(id: id, name: name, response: result)
+            toolsInFlight = max(0, toolsInFlight - 1)
+            silenceTimer?.invalidate()
+            silenceTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) { [weak self] _ in
+                guard let self, !self.answered, self.phase == .thinking else { return }
+                self.endSession()
+            }
+        }
+    }
+
+    func liveFailed(_ message: String, beforeReady: Bool) {
+        NSLog("room: live failed: \(message)")
+        if beforeReady, link?.viaHost == true {
+            hostBase = nil
+            link = direct()
+            if let link { for chunk in sessionAudio { link.sendAudio(chunk) }; setStreaming(true); return }
+        }
+        endSession()
+    }
+
+    private func speechFinished() {
+        guard turnDone, phase != .asleep, toolsInFlight == 0 else { return }
+        if phase == .thinking && !answered { return }
+        turnDone = false
+        if assistantText.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") {
+            assistantText = ""
+            answered = false
+            setPhase(.listening)
+            setStreaming(true)
+            armSilence(8)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, self.phase == .speaking || self.phase == .listening, self.toolsInFlight == 0 else { return }
+                if !self.audio.speaking && !self.turnDone { self.endSession() }
+            }
+        }
+    }
+
+    private func recordOffline() {
+        let u = userText.trimmingCharacters(in: .whitespacesAndNewlines), a = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !u.isEmpty { offlineTurns.append(["role": "user", "text": u]) }
+        if !a.isEmpty { offlineTurns.append(["role": "model", "text": a]) }
+        userText = ""
+        saveOffline()
+    }
+
+    private func saveOffline() {
+        if let d = try? JSONSerialization.data(withJSONObject: offlineTurns) { try? d.write(to: turnsFile) }
+    }
+
+    private func flushOffline() {
+        guard !offlineTurns.isEmpty, let base = hostBase, let url = URL(string: base + "/api/room/turns") else { return }
+        let batch = offlineTurns
+        var req = URLRequest(url: url, timeoutInterval: 8)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.setValue("Bearer \(config.token)", forHTTPHeaderField: "authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["turns": batch])
+        URLSession.shared.dataTask(with: req) { [weak self] _, res, _ in
+            guard (res as? HTTPURLResponse)?.statusCode == 200 else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.offlineTurns.removeFirst(min(batch.count, self.offlineTurns.count))
+                self.saveOffline()
+            }
+        }.resume()
+    }
+
+    private func probeHost() {
+        guard !config.token.isEmpty, !config.hosts.isEmpty else { hostBase = nil; return }
+        let group = DispatchGroup()
+        var found: String?
+        let lock = NSLock()
+        for base in config.hosts {
+            guard let url = URL(string: base + "/api/health") else { continue }
+            var req = URLRequest(url: url, timeoutInterval: 2.5)
+            req.setValue("Bearer \(config.token)", forHTTPHeaderField: "authorization")
+            group.enter()
+            URLSession.shared.dataTask(with: req) { _, res, _ in
+                if (res as? HTTPURLResponse)?.statusCode == 200 { lock.lock(); if found == nil { found = base }; lock.unlock() }
+                group.leave()
+            }.resume()
+        }
+        group.notify(queue: .main) { [weak self] in
+            guard let self else { return }
+            let wasOffline = self.hostBase == nil
+            self.hostBase = found
+            if found != nil && (wasOffline || self.lastPrompt == nil) { self.fetchPrompt() }
+            if found != nil && self.phase == .asleep { self.flushOffline() }
+        }
+    }
+
+    private func fetchPrompt() {
+        guard let base = hostBase, let url = URL(string: base + "/api/room/prompt") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 5)
+        req.setValue("Bearer \(config.token)", forHTTPHeaderField: "authorization")
+        URLSession.shared.dataTask(with: req) { [weak self] data, res, _ in
+            guard (res as? HTTPURLResponse)?.statusCode == 200, let data,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let p = j["prompt"] as? String else { return }
+            DispatchQueue.main.async {
+                self?.lastPrompt = p
+                if let file = self?.promptFile { try? p.write(to: file, atomically: true, encoding: .utf8) }
+            }
+        }.resume()
+    }
+
+    private func ring(_ a: RoomAlarm) {
+        if phase != .asleep { endSession() }
+        ringing = a
+        NSLog("room: ringing \(a.kind) \(a.label)")
+        let label = a.label.isEmpty ? (a.kind == "alarm" ? "Pobudka" : "Timer") : a.label
+        face.show(.ringing)
+        face.model.caption = label
+        if a.kind == "alarm" {
+            audio.effect("alarm", loops: -1)
+            ringStop?.invalidate()
+            ringStop = Timer.scheduledTimer(withTimeInterval: 300, repeats: false) { [weak self] _ in self?.stopRinging() }
+        } else {
+            audio.effect("timer", loops: 3)
+            ringStop?.invalidate()
+            ringStop = Timer.scheduledTimer(withTimeInterval: 6, repeats: false) { [weak self] _ in self?.stopRinging() }
+        }
+    }
+
+    private func stopRinging() {
+        ringStop?.invalidate()
+        audio.stopEffect("alarm")
+        audio.stopEffect("timer")
+        ringing = nil
+        if phase == .asleep { face.hide(sleepDisplay: true) } else { face.model.caption = "" }
+    }
+
+    private func userTapped() {
+        if ringing != nil { stopRinging() }
+        else if phase != .asleep { endSession() }
+    }
+
+    func playTest(_ path: String) {
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let r = d.range(of: Data("data".utf8)), r.upperBound + 4 < d.count else { return }
+        let pcm = d.subdata(in: (r.upperBound + 4)..<d.count) + Data(count: 3200 * 120)
+        DispatchQueue.global().async {
+            var i = 0
+            while i < pcm.count {
+                let chunk = pcm.subdata(in: i..<min(i + 3200, pcm.count))
+                self.audioQ.async { self.feed(chunk) }
+                i += 3200
+                usleep(100_000)
+            }
+        }
+    }
+}

@@ -1,4 +1,4 @@
-// Gzowo Concierge - live voice: bridges a browser WebSocket (/live) to Gemini Live with the same tools and approvals as text chat.
+// Gzowo Concierge - live voice: bridges a browser or room-speaker WebSocket (/live) to Gemini Live with the same tools and approvals as text chat.
 import { config } from './config.mjs';
 import { store } from './db.mjs';
 import { bus, validThread, snapshot } from './commands.mjs';
@@ -16,16 +16,43 @@ const URL_BASE = `wss://generativelanguage.googleapis.com/ws/google.ai.generativ
 
 const VOICE_RULES = `LANGUAGE LOCK: Jurek speaks Polish, always. Everything you hear is Polish, even very short, quiet or unclear utterances ('dobra', 'okej', 'idę spać', 'cześć'); transcribe and interpret it as Polish and never as Turkish, Russian, German, English or any other language. Reply only in Polish. Never switch languages on your own, even if a word sounds foreign. If you cannot make out what he said, say exactly 'Nie dosłyszałem, powtórz proszę.' in Polish instead of guessing a language.\n\nYou are now in a live spoken conversation, so everything you say is read aloud. Speak natural, correct Polish in one to three short sentences. No lists, no markdown, no symbols or emoji; say dates, times and amounts the way a person says them. If you need a tool that takes a moment, begin with a very short acknowledgement such as "Już sprawdzam." Do not read out long results: give the essential answer and offer more. If a tool needs approval, say briefly that it waits for his approval on the screen.`;
 
+export const ROOM_THREAD = 'pokoj';
 
-export function liveSetup() {
+export function voicePrompt() {
+  return `${systemPrompt()}\n\n${VOICE_RULES}`;
+}
+
+export function liveSetup(extra = {}) {
+  const tools = declarations();
+  if (extra.tools?.length) tools[0] = { functionDeclarations: [...tools[0].functionDeclarations, ...extra.tools] };
   return {
     model: MODEL,
     generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } }, languageCode: 'pl-PL' } },
-    systemInstruction: { parts: [{ text: `${systemPrompt()}\n\n${VOICE_RULES}` }] },
-    tools: declarations(),
+    systemInstruction: { parts: [{ text: extra.rules ? `${voicePrompt()}\n\n${extra.rules}` : voicePrompt() }] },
+    tools,
     inputAudioTranscription: { languageCodes: ['pl-PL'] },
     outputAudioTranscription: {},
   };
+}
+
+export function ensureRoomThread() {
+  if (!store.getThread(ROOM_THREAD)) { store.ensureThread(ROOM_THREAD); store.renameThread(ROOM_THREAD, 'Pokój'); }
+  return ROOM_THREAD;
+}
+
+export function importRoomTurns(turns) {
+  const thread = ensureRoomThread();
+  let n = 0;
+  for (const t of Array.isArray(turns) ? turns.slice(0, 200) : []) {
+    const text = String(t?.text || '').trim().slice(0, 4000);
+    if (!text) continue;
+    const role = t.role === 'model' ? 'model' : 'user';
+    store.addContent(thread, { role, parts: [{ text }] });
+    bus.emit('event', { type: role === 'user' ? 'user' : 'text', text, rid: crypto.randomUUID(), thread });
+    n++;
+  }
+  if (n) store.touchThread(thread);
+  return n;
 }
 
 export async function mintLiveToken() {
@@ -46,19 +73,32 @@ export async function mintLiveToken() {
 }
 
 export function handleLiveUpgrade(req, socket) {
-  const thread = validThread(new URL(req.url, 'http://x').searchParams.get('thread'));
+  const params = new URL(req.url, 'http://x').searchParams;
+  const room = params.get('client') === 'room';
+  const thread = room ? ensureRoomThread() : validThread(params.get('thread'));
   store.ensureThread(thread);
   const rid = () => crypto.randomUUID();
   let upstream = null, ready = false, closed = false;
   let turn = { user: '', assistant: '', rid: rid() };
   let state = 'connecting';
   const pendingAudio = [];
+  const roomTools = new Set();
+  const roomCalls = new Map();
+  let roomExtra = null;
 
   const conn = acceptUpgrade(req, socket, {
     onMessage: (data, binary) => {
       if (binary) { sendAudio(data); return; }
       let m; try { m = JSON.parse(data); } catch { return; }
-      if (m.type === 'text' && typeof m.text === 'string' && m.text.trim()) sendUp({ realtimeInput: { text: m.text.trim() } });
+      if (m.type === 'hello' && room && !upstream) {
+        const decls = (Array.isArray(m.tools) ? m.tools : []).filter(d => typeof d?.name === 'string' && d.name.startsWith('room_')).slice(0, 40);
+        for (const d of decls) roomTools.add(d.name);
+        roomExtra = { tools: decls, rules: typeof m.rules === 'string' ? m.rules.slice(0, 6000) : '' };
+        connectUpstream();
+      } else if (m.type === 'tool-result' && roomCalls.has(m.id)) {
+        roomCalls.get(m.id)(m.response ?? {});
+        roomCalls.delete(m.id);
+      } else if (m.type === 'text' && typeof m.text === 'string' && m.text.trim()) sendUp({ realtimeInput: { text: m.text.trim() } });
       else if (m.type === 'end') close();
     },
     onClose: () => close(true),
@@ -69,24 +109,37 @@ export function handleLiveUpgrade(req, socket) {
 
   const tell = o => conn.open && conn.sendText(JSON.stringify(o));
   const setState = s => { if (s !== state) { state = s; tell({ type: 'state', state: s }); } };
-  const emit = e => { const ev = { ...e, rid: turn.rid, thread }; tell(ev); bus.emit('event', ev); };
 
   function sendUp(o) { if (upstream?.readyState === 1 && ready) upstream.send(JSON.stringify(o)); }
   function sendAudio(buf) {
-    if (!ready) { if (pendingAudio.length < 50) pendingAudio.push(buf); return; }
+    if (!ready) { if (pendingAudio.length < 80) pendingAudio.push(buf); return; }
     sendUp({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: Buffer.from(buf).toString('base64') } } });
   }
 
+  let lastUser = '';
   function flushTurn() {
-    const u = turn.user.trim(), a = turn.assistant.trim();
+    const a = turn.assistant.trim();
+    let u = turn.user.trim();
+    if (u && u === lastUser) u = '';
+    else if (u) lastUser = u;
     if (u) { store.addContent(thread, { role: 'user', parts: [{ text: u }] }); bus.emit('event', { type: 'user', text: u, rid: turn.rid, cid: turn.rid, thread }); }
     if (a) { store.addContent(thread, { role: 'model', parts: [{ text: a }] }); bus.emit('event', { type: 'text', text: a, rid: turn.rid, thread }); }
+    if (u || a) store.touchThread(thread);
     turn = { user: '', assistant: '', rid: rid() };
+  }
+
+  function roomCall(call) {
+    const id = call.id || rid();
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { roomCalls.delete(id); resolve({ error: 'Głośnik w pokoju nie odpowiedział.' }); }, 25000);
+      roomCalls.set(id, r => { clearTimeout(timer); resolve(r); });
+      tell({ type: 'tool', id, name: call.name, args: call.args || {} });
+    });
   }
 
   function connectUpstream() {
     upstream = new WebSocket(`${URL_BASE}?key=${encodeURIComponent(config.apiKey)}`);
-    upstream.addEventListener('open', () => { upstream.send(JSON.stringify({ setup: liveSetup() })); });
+    upstream.addEventListener('open', () => { upstream.send(JSON.stringify({ setup: liveSetup(roomExtra || {}) })); });
     upstream.addEventListener('message', async ev => {
       let m; try { m = JSON.parse(ev.data instanceof Blob ? await ev.data.text() : String(ev.data)); } catch { return; }
       onUpstream(m);
@@ -105,6 +158,10 @@ export function handleLiveUpgrade(req, socket) {
       setState('thinking');
       const responses = [];
       for (const call of m.toolCall.functionCalls || []) {
+        if (roomTools.has(call.name)) {
+          responses.push({ id: call.id, name: call.name, response: await roomCall(call) });
+          continue;
+        }
         const crid = call.id || rid();
         const emitCall = e => { const ev = { ...e, rid: crid, thread }; tell(ev); bus.emit('event', ev); };
         const response = await callTool(thread, { name: call.name, args: call.args }, emitCall);
@@ -124,6 +181,7 @@ export function handleLiveUpgrade(req, socket) {
     if (sc.outputTranscription?.text) { turn.assistant += sc.outputTranscription.text; tell({ type: 'transcript', role: 'assistant', text: turn.assistant, final: false }); }
     if (sc.turnComplete) {
       tell({ type: 'transcript', role: 'assistant', text: turn.assistant, final: true });
+      tell({ type: 'turn-complete' });
       flushTurn(); setState('listening');
     }
   }
@@ -133,13 +191,16 @@ export function handleLiveUpgrade(req, socket) {
     closed = true;
     flushTurn();
     live.sessions.delete(me);
+    for (const done of roomCalls.values()) done({ error: 'Sesja zakończona.' });
+    roomCalls.clear();
     try { upstream?.close(1000); } catch {}
     if (!fromSocket) conn.close(1000);
   }
 
   if (!config.apiKey) { tell({ type: 'error', message: 'Brak klucza Gemini.' }); close(); return; }
   tell({ type: 'state', state: 'connecting' });
-  connectUpstream();
+  if (!room) connectUpstream();
+  else setTimeout(() => { if (!upstream && !closed) connectUpstream(); }, 3000);
 }
 
 bus.on('approval-result', r => {

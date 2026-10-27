@@ -9,7 +9,7 @@ import { chat, approve, snapshot, applyPolicy, forgetFact, clearThread, history,
 import { today } from './today.mjs';
 import { getAvatar, setAvatar } from './commands.mjs';
 import { startRelay, pairingUrl } from './relay.mjs';
-import { handleLiveUpgrade } from './live.mjs';
+import { handleLiveUpgrade, voicePrompt, importRoomTurns } from './live.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
 import { listLogins, saveLogin, removeLogin } from './logins.mjs';
@@ -141,6 +141,8 @@ async function api(req, res, url) {
   }
   if (p === '/api/push/unsubscribe' && req.method === 'POST') { removeSubscription(String((await readBody(req)).endpoint || '')); return json(res, 200, { ok: true, brief: getBrief() }); }
   if (p === '/api/clear' && req.method === 'POST') { clearThread(validThread((await readBody(req)).thread)); return json(res, 200, { ok: true }); }
+  if (p === '/api/room/prompt') return json(res, 200, { prompt: voicePrompt() });
+  if (p === '/api/room/turns' && req.method === 'POST') return json(res, 200, { imported: importRoomTurns((await readBody(req)).turns) });
   return json(res, 404, { error: 'not found' });
 }
 
