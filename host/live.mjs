@@ -4,6 +4,7 @@ import { store } from './db.mjs';
 import { bus, validThread, snapshot } from './commands.mjs';
 import { callTool } from './agent.mjs';
 import { systemPrompt } from './prompt.mjs';
+import { getDictionary } from './dictation.mjs';
 import { declarations } from './tools/index.mjs';
 import { acceptUpgrade } from './ws.mjs';
 import { live } from './live-state.mjs';
@@ -18,8 +19,17 @@ const VOICE_RULES = `LANGUAGE LOCK: Jurek speaks Polish, always. Everything you 
 
 export const ROOM_THREAD = 'pokoj';
 
+function namesRule() {
+  const list = getDictionary().slice(0, 80).map(e => {
+    const term = Array.isArray(e) ? e[0] : e?.term;
+    const aliases = (Array.isArray(e) ? e[1] : e?.aliases) || [];
+    return term ? (aliases.length ? `${term} (may sound like: ${aliases.join(', ')})` : term) : '';
+  }).filter(Boolean);
+  return `NAMES: Jurek often says these proper names. When a word sounds close to one of them, it is that name; use and write it exactly like this: ${list.join('; ')}. Gzowo is the village with his family plot (do Gzowa, w Gzowie, z Gzowa); a place that sounds like Gdów or Gdowa is almost always Gzowo.`;
+}
+
 export function voicePrompt() {
-  return `${systemPrompt()}\n\n${VOICE_RULES}`;
+  return `${systemPrompt()}\n\n${VOICE_RULES}\n\n${namesRule()}`;
 }
 
 export function liveSetup(extra = {}) {

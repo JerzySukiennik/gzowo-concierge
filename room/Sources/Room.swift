@@ -32,6 +32,7 @@ final class Room: LiveEvents {
     private var ringStop: Timer?
     private var hostBase: String?
     private var lastPrompt: String?
+    private var promptFetched = Date.distantPast
     private var offlineTurns: [[String: String]] = []
     private let promptFile = RoomConfig.dir.appendingPathComponent("prompt.txt")
     private let turnsFile = RoomConfig.dir.appendingPathComponent("offline-turns.json")
@@ -328,7 +329,7 @@ final class Room: LiveEvents {
             guard let self else { return }
             let wasOffline = self.hostBase == nil
             self.hostBase = found
-            if found != nil && (wasOffline || self.lastPrompt == nil) { self.fetchPrompt() }
+            if found != nil && (wasOffline || self.lastPrompt == nil || Date().timeIntervalSince(self.promptFetched) > 3600) { self.fetchPrompt() }
             if found != nil && self.phase == .asleep { self.flushOffline() }
         }
     }
@@ -342,6 +343,7 @@ final class Room: LiveEvents {
                   let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let p = j["prompt"] as? String else { return }
             DispatchQueue.main.async {
                 self?.lastPrompt = p
+                self?.promptFetched = Date()
                 if let file = self?.promptFile { try? p.write(to: file, atomically: true, encoding: .utf8) }
             }
         }.resume()
