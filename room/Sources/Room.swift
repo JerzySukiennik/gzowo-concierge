@@ -15,6 +15,7 @@ final class Room: LiveEvents {
     private var streamTarget: LiveLink?
     private var ring: [Data] = []
     private var utteranceChunks = 0
+    private var testFeeding = false
 
     private var phase: Phase = .asleep
     private var link: LiveLink?
@@ -55,7 +56,7 @@ final class Room: LiveEvents {
         }
         audio.onChunk = { [weak self] chunk, level in
             guard let self else { return }
-            self.audioQ.async { self.feed(chunk) }
+            self.audioQ.async { if !self.testFeeding { self.feed(chunk) } }
             DispatchQueue.main.async { if self.phase == .listening { self.face.model.level = CGFloat(level) } }
         }
         audio.onSpeechIdle = { [weak self] in self?.speechFinished() }
@@ -362,7 +363,9 @@ final class Room: LiveEvents {
     func playTest(_ path: String) {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let r = d.range(of: Data("data".utf8)), r.upperBound + 4 < d.count else { return }
         let pcm = d.subdata(in: (r.upperBound + 4)..<d.count) + Data(count: 3200 * 120)
+        audioQ.async { self.testFeeding = true }
         DispatchQueue.global().async {
+            defer { self.audioQ.async { self.testFeeding = false } }
             var i = 0
             while i < pcm.count {
                 let chunk = pcm.subdata(in: i..<min(i + 3200, pcm.count))

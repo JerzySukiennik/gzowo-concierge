@@ -1,7 +1,7 @@
 #!/bin/bash
 # Concierge Pokój - installs the room app on MacPetite over SSH: the app, settings (host address, token, contacts), Gemini keys and a LaunchAgent.
 set -euo pipefail
-TARGET="${1:-jurek@MacPetite.local}"
+TARGET="${1:-jerzysukiennik@MacPetite.local}"
 cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
 ./build.sh
@@ -41,9 +41,9 @@ cat > "$STAGE/fun.gzowo.concierge.room.plist" <<'EOF'
 EOF
 
 SUP="Library/Application Support/ConciergeRoom"
-ssh "$TARGET" "mkdir -p '$SUP' Library/LaunchAgents && launchctl bootout gui/\$(id -u)/fun.gzowo.concierge.room 2>/dev/null; true"
+ssh "$TARGET" "mkdir -p '$SUP' Library/LaunchAgents && (launchctl bootout gui/\$(id -u)/fun.gzowo.concierge.room 2>/dev/null || launchctl unload Library/LaunchAgents/fun.gzowo.concierge.room.plist 2>/dev/null; pkill -x ConciergeRoom; true)"
 tar -C "$(dirname "$APP")" -cf - "$(basename "$APP")" | ssh "$TARGET" "rm -rf /Applications/ConciergeRoom.app && mkdir -p /Applications/ConciergeRoom.app && tar -xf - -C /Applications/ConciergeRoom.app --strip-components 1"
 ssh "$TARGET" "umask 077 && cat > '$SUP/config.json'" < "$STAGE/config.json"
 ssh "$TARGET" "umask 077 && cat > '$SUP/.env'" < "$STAGE/.env"
 ssh "$TARGET" "cat > Library/LaunchAgents/fun.gzowo.concierge.room.plist" < "$STAGE/fun.gzowo.concierge.room.plist"
-ssh "$TARGET" "launchctl bootstrap gui/\$(id -u) Library/LaunchAgents/fun.gzowo.concierge.room.plist && sleep 3 && pgrep -x ConciergeRoom >/dev/null && echo 'room: running on MacPetite' && tail -3 /tmp/concierge-room.log"
+ssh "$TARGET" "(launchctl bootstrap gui/\$(id -u) Library/LaunchAgents/fun.gzowo.concierge.room.plist 2>/dev/null || launchctl load -w Library/LaunchAgents/fun.gzowo.concierge.room.plist) && sleep 4 && pgrep -x ConciergeRoom >/dev/null && echo 'room: running on MacPetite' && tail -3 /tmp/concierge-room.log"
