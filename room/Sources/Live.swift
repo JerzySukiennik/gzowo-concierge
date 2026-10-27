@@ -9,6 +9,7 @@ protocol LiveEvents: AnyObject {
     func liveInterrupted()
     func liveTool(id: String, name: String, args: [String: Any])
     func liveThinking()
+    func liveSpeaking()
     func liveFailed(_ message: String, beforeReady: Bool)
 }
 
@@ -75,6 +76,7 @@ final class HostLink: LiveLink {
             if let id = m["id"] as? String, let name = m["name"] as? String { events?.liveTool(id: id, name: name, args: m["args"] as? [String: Any] ?? [:]) }
         case "state":
             if (m["state"] as? String) == "thinking" { events?.liveThinking() }
+            if (m["state"] as? String) == "speaking" { events?.liveSpeaking() }
         case "tool", "approval":
             if (m["status"] as? String ?? "running") == "running" { events?.liveThinking() }
         case "error": fail(m["message"] as? String ?? "Błąd hosta")

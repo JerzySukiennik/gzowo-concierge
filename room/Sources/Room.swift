@@ -16,6 +16,9 @@ final class Room: LiveEvents {
     private var ring: [Data] = []
     private var utteranceChunks = 0
     private var testFeeding = false
+    private var recording = Data()
+    private var recordLeft = 0
+    private var recordPath = ""
 
     private var phase: Phase = .asleep
     private var link: LiveLink?
@@ -27,6 +30,10 @@ final class Room: LiveEvents {
     private var heardUser = false
     private var toolsInFlight = 0
     private var answered = false
+    private var hostWorking = false
+    private var sessionStart = Date()
+    private var lastHeard = Date()
+    private var firstAudioLogged = false
     private var silenceTimer: Timer?
     private var ringing: RoomAlarm?
     private var ringStop: Timer?
@@ -52,6 +59,7 @@ final class Room: LiveEvents {
         if let path = Bundle.main.resourceURL?.appendingPathComponent("model").path { wake = WakeWord(modelPath: path) }
         wake?.onWake = { [weak self] follows in
             guard let self else { return }
+            if self.recordLeft > 0 { NSLog("room: wake heard during recording"); return }
             let n = min(self.utteranceChunks, 80)
             let utterance = follows ? Array(self.ring.suffix(n)) : []
             DispatchQueue.main.async { self.woke(commandFollows: follows, utterance: utterance) }
@@ -62,6 +70,7 @@ final class Room: LiveEvents {
             DispatchQueue.main.async { if self.phase == .listening { self.face.model.level = CGFloat(level) } }
         }
         audio.onSpeechIdle = { [weak self] in self?.speechFinished() }
+        Task { _ = await tools.osa("set volume input volume 85") }
         do { try audio.start() } catch { NSLog("room: audio failed: \(error.localizedDescription)") }
         probeHost()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.probeHost() }
@@ -69,6 +78,11 @@ final class Room: LiveEvents {
     }
 
     private func feed(_ chunk: Data) {
+        if recordLeft > 0 {
+            recording.append(chunk)
+            recordLeft -= 1
+            if recordLeft == 0 { Self.writeWav(recording, to: recordPath); NSLog("room: recorded \(recordPath)"); recording = Data() }
+        }
         ring.append(chunk)
         if ring.count > 80 { ring.removeFirst(ring.count - 80) }
         utteranceChunks += 1
@@ -106,6 +120,10 @@ final class Room: LiveEvents {
         turnDone = false
         toolsInFlight = 0
         answered = false
+        hostWorking = false
+        firstAudioLogged = false
+        sessionStart = Date()
+        lastHeard = Date()
         assistantText = ""
         heardUser = !replay.isEmpty
         sessionAudio = replay
@@ -178,6 +196,7 @@ final class Room: LiveEvents {
     }
 
     func liveReady() {
+        NSLog("room: ready +%.1fs", Date().timeIntervalSince(sessionStart))
         if phase == .connecting { setPhase(.listening) }
     }
 
@@ -188,7 +207,8 @@ final class Room: LiveEvents {
             silenceTimer?.invalidate()
             setPhase(.speaking)
         }
-        answered = true
+        if !hostWorking { answered = true }
+        if !firstAudioLogged { firstAudioLogged = true; NSLog("room: first audio +%.1fs after last speech", Date().timeIntervalSince(lastHeard)) }
         audio.playSpeech(pcm24)
         face.model.level = min(1, CGFloat(pcm24.count) / 9600)
     }
@@ -197,6 +217,8 @@ final class Room: LiveEvents {
         if user {
             userText = text
             userAt = Date()
+            lastHeard = Date()
+            firstAudioLogged = false
             heardUser = true
             if phase == .listening { armSilence(10) }
         } else {
@@ -217,11 +239,19 @@ final class Room: LiveEvents {
     }
 
     func liveThinking() {
-        guard phase != .asleep, phase != .speaking else { return }
+        guard phase != .asleep else { return }
+        NSLog("room: thinking +%.1fs", Date().timeIntervalSince(lastHeard))
+        hostWorking = true
+        answered = false
+        firstAudioLogged = false
+        guard phase != .speaking else { return }
         setPhase(.thinking)
         setStreaming(false)
-        answered = false
         waitForAnswer(25)
+    }
+
+    func liveSpeaking() {
+        hostWorking = false
     }
 
     private func waitForAnswer(_ seconds: TimeInterval) {
@@ -260,25 +290,17 @@ final class Room: LiveEvents {
 
     private func speechFinished() {
         guard turnDone, phase != .asleep, toolsInFlight == 0 else { return }
-        if !answered {
-            turnDone = false
+        turnDone = false
+        if hostWorking || !answered {
             if phase != .thinking { setPhase(.thinking); setStreaming(false) }
-            waitForAnswer(15)
+            waitForAnswer(hostWorking ? 25 : 15)
             return
         }
-        turnDone = false
-        if assistantText.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") {
-            assistantText = ""
-            answered = false
-            setPhase(.listening)
-            setStreaming(true)
-            armSilence(8)
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self, self.phase == .speaking || self.phase == .listening, self.toolsInFlight == 0 else { return }
-                if !self.audio.speaking && !self.turnDone { self.endSession() }
-            }
-        }
+        assistantText = ""
+        answered = false
+        setPhase(.listening)
+        setStreaming(true)
+        armSilence(9)
     }
 
     private func recordOffline() {
@@ -383,6 +405,26 @@ final class Room: LiveEvents {
     }
 
     func snapshot(_ path: String) { face.snapshot(to: path) }
+
+    func record(_ spec: String) {
+        let parts = spec.split(separator: ":")
+        guard let path = parts.first, let secs = parts.count > 1 ? Int(parts[1]) : 30 else { return }
+        audioQ.async {
+            self.recording = Data()
+            self.recordPath = String(path)
+            self.recordLeft = max(1, min(secs, 120)) * 10
+        }
+    }
+
+    private static func writeWav(_ pcm: Data, to path: String) {
+        var h = Data()
+        func u32(_ v: UInt32) { var x = v.littleEndian; h.append(Data(bytes: &x, count: 4)) }
+        func u16(_ v: UInt16) { var x = v.littleEndian; h.append(Data(bytes: &x, count: 2)) }
+        h.append(Data("RIFF".utf8)); u32(UInt32(36 + pcm.count)); h.append(Data("WAVEfmt ".utf8))
+        u32(16); u16(1); u16(1); u32(16000); u32(32000); u16(2); u16(16)
+        h.append(Data("data".utf8)); u32(UInt32(pcm.count))
+        try? (h + pcm).write(to: URL(fileURLWithPath: path))
+    }
 
     func playTest(_ path: String) {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let r = d.range(of: Data("data".utf8)), r.upperBound + 4 < d.count else { return }

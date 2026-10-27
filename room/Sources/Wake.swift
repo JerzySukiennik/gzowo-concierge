@@ -38,6 +38,7 @@ final class WakeWord {
               let text = j["text"] as? String else { return true }
         let tokens = text.split(separator: " ").map(String.init)
         if let i = tokens.indices.first(where: { $0 + 1 < tokens.count && tokens[$0] == "hej" && tokens[$0 + 1] == "gazowa" }) { onWake(i + 2 < tokens.count) }
+        else if tokens.contains("hej") || tokens.contains("gazowa") { NSLog("room: near miss '\(text)'") }
         return true
     }
 
