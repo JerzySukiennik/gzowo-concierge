@@ -43,9 +43,21 @@ if not SMOKE:
 from scipy.signal import fftconvolve, resample_poly  # noqa: E402
 
 
+def retry(fn, tries=8):
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            if i == tries - 1:
+                raise
+            log(f"retry {i + 1} after {e}")
+            time.sleep(10 * (i + 1))
+
+
 def fetch(url, path):
     if not os.path.exists(path):
-        urllib.request.urlretrieve(url, path)
+        retry(lambda: urllib.request.urlretrieve(url, path + ".part"))
+        os.replace(path + ".part", path)
     return path
 
 
@@ -156,6 +168,10 @@ NEAR = [
     "Hej, w Gzowie było fajnie", "Okej, w Gzowie zrobimy start", "hej, gdzie jesteś", "okej, dobra", "hej, chodź tu", "Gosia, chodź",
     "hej, Grzesiek", "okej, zobaczymy", "hej, co tam", "okej, rozumiem", "Gzowa nie ma na mapie",
     "o, Gzowo", "ej, Zośka", "hej, wołowina", "okej, sowa", "hej, krowa", "okej, głowa", "hej, Józwa", "ok, w porządku",
+    "w Gzowie", "w Gzowie odpalimy rakietę", "wszystko w porządku, w Gzowie", "hej, gdzie są klucze", "hej, gdzie jesteś",
+    "hej, gdzie idziesz", "okej, gdzie to jest", "okej, w porządku", "hej, głośniej", "okej, głośniej", "hej, gramy", "okej, gramy",
+    "hej, Grześ", "hej, Krzysiek", "okej, Krzysiek", "hej, zrobione", "okej, to w Gzowie", "nad Narwią w Gzowie",
+    "w Gzowie jest cicho", "do Gzowa jedziemy", "z Gzowa wracamy", "hej, gotowy", "okej, gotowy", "hej, gwiazda", "okej, gra",
 ]
 SENTENCES = [
     "Dzisiaj po szkole muszę jeszcze odrobić zadanie z matematyki.", "Mamo, gdzie jest moja ładowarka do telefonu?",
@@ -183,12 +199,14 @@ for v in voices:
             neg_near.append(trim(say(v, text, ls, float(rng.uniform(0.3, 1.0)), float(rng.uniform(0.4, 1.1)))))
     for text in SENTENCES[: 3 if SMOKE else None]:
         neg_speech.append(say(v, text, float(rng.uniform(0.85, 1.15)), 0.667, 0.8))
+for f in sorted(glob.glob(os.path.join(IN, "negatives/*.wav"))):
+    neg_speech.append(read_wav(f))
 log("near-miss clips", len(neg_near), "sentences", len(neg_speech))
 
 # ---------- room impulse responses ----------
 rirs = []
 try:
-    tree = json.load(urllib.request.urlopen("https://huggingface.co/api/datasets/davidscripka/MIT_environmental_impulse_responses/tree/main/16khz", timeout=60))
+    tree = retry(lambda: json.load(urllib.request.urlopen("https://huggingface.co/api/datasets/davidscripka/MIT_environmental_impulse_responses/tree/main/16khz", timeout=60)))
     files = [t["path"] for t in tree if t["path"].endswith(".wav")][: 20 if SMOKE else None]
     for p in files:
         local = fetch(f"https://huggingface.co/datasets/davidscripka/MIT_environmental_impulse_responses/resolve/main/{p}", os.path.join(TMP, os.path.basename(p)))
@@ -295,7 +313,7 @@ log(f"windows: positives {len(pos)}, negatives {len(neg)}, holdout {len(hold)}")
 # ---------- features ----------
 from openwakeword.utils import AudioFeatures, download_models  # noqa: E402
 
-download_models(model_names=["alexa"])
+retry(lambda: download_models(model_names=["alexa"]))
 F = AudioFeatures(inference_framework="onnx", ncpu=4)
 
 
@@ -319,9 +337,12 @@ log("features", Xp.shape, Xn.shape, Xh.shape)
 # ---------- big negative set ----------
 def partial_npy(url, path, max_bytes):
     if not os.path.exists(path):
-        req = urllib.request.Request(url, headers={"Range": f"bytes=0-{max_bytes - 1}"})
-        with urllib.request.urlopen(req, timeout=600) as r, open(path, "wb") as f:
-            shutil.copyfileobj(r, f, 1 << 24)
+        def get():
+            req = urllib.request.Request(url, headers={"Range": f"bytes=0-{max_bytes - 1}"})
+            with urllib.request.urlopen(req, timeout=600) as r, open(path + ".part", "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 24)
+        retry(get)
+        os.replace(path + ".part", path)
     with open(path, "rb") as f:
         magic = f.read(6)
         major = f.read(1)[0]
