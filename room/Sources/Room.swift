@@ -16,6 +16,7 @@ final class Room: LiveEvents {
     private var ring: [Data] = []
     private var utteranceChunks = 0
     private var testFeeding = false
+    private let remote = RemoteMic()
     private lazy var announcer = Announcer(audio: audio)
     private var announcements: [String] = []
     private var recording = Data()
@@ -73,10 +74,16 @@ final class Room: LiveEvents {
             DispatchQueue.main.async { self.woke(commandFollows: follows, utterance: utterance) }
         }
         audio.onChunk = { [weak self] chunk, level in
+            guard let self, !self.remote.active else { return }
+            self.audioQ.async { if !self.testFeeding { self.feed(chunk) } }
+            DispatchQueue.main.async { self.voice(level) }
+        }
+        remote.onChunk = { [weak self] chunk, level in
             guard let self else { return }
             self.audioQ.async { if !self.testFeeding { self.feed(chunk) } }
             DispatchQueue.main.async { self.voice(level) }
         }
+        remote.start()
         audio.onSpeechIdle = { [weak self] in self?.speechFinished() }
         Task { _ = await tools.osa("set volume input volume 85") }
         do { try audio.start() } catch { NSLog("room: audio failed: \(error.localizedDescription)") }
