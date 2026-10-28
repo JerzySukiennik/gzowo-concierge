@@ -65,7 +65,7 @@ final class RoomTools {
 
     static let rules = """
     ROOM SPEAKER: Jurek is talking to you through the speaker in his bedroom (an old MacBook called MacPetite with a microphone and a speaker). He wakes you with the phrase "Hej Gzowo"; transcripts may show it as "hej gazowa" or similar. Never comment on the phrase, just handle what follows it. If he only said the wake phrase, answer with one short word such as "Słucham?". Keep every answer short and spoken.
-    The room_* tools run on the speaker itself: timers and alarms ring in his room, music plays on the room speaker through Apple Music, messages go out as iMessage from the assistant's own Apple account. For a timer use room_timer_set, for a wake-up or any clock time use room_alarm_set.
+    The room_* tools run on the speaker itself: timers and alarms ring in his room, music plays on the room speaker through Apple Music, messages go out as iMessage from the assistant's own Apple account. For a countdown use room_timer_set. For a reminder ("przypomnij mi", "powiadom mnie", a heads-up before an event) use room_reminder_set: it says the text out loud once. room_alarm_set rings a loud bell until stopped and is only for waking him up.
     Messages: contacts marked trusted (mama, tata) are sent right away. For anyone else first read the message back in one sentence and ask "Wysłać?", and call room_message_send with confirmed=true only after he clearly says yes.
     He can ask about what is on the screen of his main MacBook ("co to jest na ekranie?", "co to za błąd?"): use screen_look. "Pokaż to na Macu" means mac_show (put longer content in details). "Jak minął dzień?" means day_summary. announce_in_room is for other conversations; here you are already speaking in the room.
     When you mention yourself in Polish, call this device "głośnik w pokoju"; never use English words such as "room speaker". Before a tool that takes a moment you may say "Już sprawdzam.", but then always give the actual answer.
@@ -93,6 +93,7 @@ final class RoomTools {
             fn("room_message_send", "Send an iMessage from the assistant's account. Use the contact name in base form (mama, tata) or a phone number.", ["to": str("Contact name or phone number"), "text": str("Message text in Polish"), "confirmed": bool("True only after Jurek said yes to sending (not needed for trusted contacts)")], ["to", "text"]),
             fn("room_weather", "Weather now and the daily forecast up to a week ahead, at home (Warszawa) or in any Polish place.", ["day": str("today, tomorrow or a date YYYY-MM-DD within 7 days"), "place": str("Optional place name in the base form, e.g. Gzowo, Gdańsk; default is home")], []),
             fn("room_snooze", "Snooze: ring the alarm bell again in a few minutes.", ["minutes": int("Minutes, default 9")], []),
+            fn("room_reminder_set", "Spoken reminder in the room: at the given time it says the text out loud once (no bell). Give either a clock time or minutes from now.", ["text": str("What to say, in Polish, e.g. 'Za kwadrans Pro And Tell Apple Event'"), "time": str("Optional HH:MM, 24-hour"), "minutes": int("Optional minutes from now")], ["text"]),
             fn("room_volume", "Set the room speaker volume.", ["level": int("0-100")], ["level"]),
             fn("room_not_for_me", "Call this instead of answering when the last thing you heard was not addressed to you. Say nothing after calling it.", [:], []),
         ]
@@ -136,6 +137,15 @@ final class RoomTools {
             return r.ok ? ["playing": r.out.isEmpty ? NSNull() : r.out as Any] : ["error": r.out]
         case "room_message_send":
             return await message(to: args["to"] as? String ?? "", text: args["text"] as? String ?? "", confirmed: args["confirmed"] as? Bool ?? false)
+        case "room_reminder_set":
+            let text = (args["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return ["error": "Pusta treść przypomnienia"] }
+            var fire: Date?
+            if let m = (args["minutes"] as? NSNumber)?.intValue, m > 0 { fire = Date().addingTimeInterval(TimeInterval(m * 60)) }
+            else if let t = args["time"] as? String { fire = alarmDate(t, date: nil) }
+            guard let fire else { return ["error": "Podaj godzinę albo za ile minut"] }
+            let a = alarms.add(kind: "reminder", label: text, fire: fire)
+            return ["ok": true, "id": a.id, "says_at": dayClock(a.fire)]
         case "room_snooze":
             let m = max(1, min(60, (args["minutes"] as? NSNumber)?.intValue ?? 9))
             let a = alarms.add(kind: "alarm", label: "Drzemka", fire: Date().addingTimeInterval(TimeInterval(m * 60)))

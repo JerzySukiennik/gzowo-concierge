@@ -16,6 +16,7 @@ final class Room: LiveEvents {
     private var ring: [Data] = []
     private var utteranceChunks = 0
     private var testFeeding = false
+    private var trained: WakeModel?
     private let remote = RemoteMic()
     private lazy var announcer = Announcer(audio: audio)
     private var announcements: [String] = []
@@ -65,6 +66,17 @@ final class Room: LiveEvents {
             wake = WakeWord(modelPath: res.appendingPathComponent("model").path, wordsPath: res.appendingPathComponent("wake-words.txt").path)
         }
         wake?.onReject = { [weak self] _ in self?.saveClip("reject") }
+        if let dir = Bundle.main.resourceURL?.appendingPathComponent("oww"), let m = WakeModel(dir: dir, threshold: config.wakeThreshold) {
+            trained = m
+            m.onWake = { [weak self] score in
+                guard let self else { return }
+                NSLog("room: trained wake %.3f", score)
+                self.saveClip("wake-model")
+                if self.recordLeft > 0 { return }
+                let replay = Array(self.ring.suffix(6))
+                DispatchQueue.main.async { self.woke(commandFollows: true, utterance: replay, quietChime: true) }
+            }
+        }
         wake?.onWake = { [weak self] follows in
             guard let self else { return }
             self.saveClip("wake")
@@ -112,6 +124,7 @@ final class Room: LiveEvents {
         if ring.count > 80 { ring.removeFirst(ring.count - 80) }
         utteranceChunks += 1
         if wake?.accept(chunk) == true { utteranceChunks = 0 }
+        trained?.accept(chunk)
         streamLock.lock(); let target = streamTarget; streamLock.unlock()
         target?.sendAudio(chunk)
     }
@@ -130,7 +143,7 @@ final class Room: LiveEvents {
         streamLock.lock(); streamTarget = on ? link : nil; streamLock.unlock()
     }
 
-    private func woke(commandFollows: Bool, utterance: [Data]) {
+    private func woke(commandFollows: Bool, utterance: [Data], quietChime: Bool = false) {
         NSLog("room: wake (command follows: \(commandFollows), replay \(utterance.count) chunks)")
         let afterAlarm = ringing?.kind == "alarm"
         if announcer.busy { announcer.stop() }
@@ -147,7 +160,7 @@ final class Room: LiveEvents {
         default:
             return
         }
-        if !commandFollows { audio.effect("wake", volume: 0.6) }
+        if !commandFollows || quietChime { audio.effect("wake", volume: quietChime ? 0.35 : 0.6) }
         face.wake(.listening)
         beginSession(replay: utterance, afterAlarm: afterAlarm)
     }
@@ -462,6 +475,13 @@ final class Room: LiveEvents {
     }
 
     private func ring(_ a: RoomAlarm) {
+        if a.kind == "reminder" {
+            NSLog("room: reminder \(a.label)")
+            announcements.insert("Przypomnienie: \(a.label)", at: 0)
+            if phase == .asleep { audio.effect("wake", volume: 0.6) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.speakNext() }
+            return
+        }
         if phase != .asleep { endSession() }
         ringing = a
         NSLog("room: ringing \(a.kind) \(a.label)")

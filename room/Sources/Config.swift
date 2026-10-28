@@ -12,6 +12,7 @@ struct RoomConfig {
     var place = "Warszawa"
     var voice = "Puck"
     var model = "models/gemini-3.8-live"
+    var wakeThreshold: Float = 0.5
 
     static let dir: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("ConciergeRoom", isDirectory: true)
@@ -32,6 +33,7 @@ struct RoomConfig {
             c.place = j["place"] as? String ?? c.place
             c.voice = j["voice"] as? String ?? c.voice
             c.model = j["model"] as? String ?? c.model
+            c.wakeThreshold = (j["wakeThreshold"] as? NSNumber)?.floatValue ?? c.wakeThreshold
         }
         let env = dotenv(dir.appendingPathComponent(".env"))
         let keys = (env["GEMINI_API_KEYS"] ?? env["GEMINI_API_KEY"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
