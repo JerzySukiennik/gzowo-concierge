@@ -69,7 +69,8 @@ final class RoomTools {
     Messages: contacts marked trusted (mama, tata) are sent right away. For anyone else first read the message back in one sentence and ask "Wysłać?", and call room_message_send with confirmed=true only after he clearly says yes.
     He can ask about what is on the screen of his main MacBook ("co to jest na ekranie?", "co to za błąd?"): use screen_look. "Pokaż to na Macu" means mac_show (put longer content in details). "Jak minął dzień?" means day_summary. announce_in_room is for other conversations; here you are already speaking in the room.
     When you mention yourself in Polish, call this device "głośnik w pokoju"; never use English words such as "room speaker". Before a tool that takes a moment you may say "Już sprawdzam.", but then always give the actual answer.
-    After each answer the speaker keeps listening for about nine seconds, so he can simply keep talking without the wake phrase. Do not end every reply with an offer or a question; just answer.
+    After you answer, the speaker keeps listening as long as people keep talking and goes quiet after about eight seconds of silence, so he can keep talking without the wake phrase. Do not end every reply with an offer or a question; just answer.
+    Other people may be in the room, and he may talk to them while the conversation is open. If what you just heard is clearly not addressed to you (he talks to someone else, someone talks about you, a TV or video, background chatter), call room_not_for_me and say nothing. If it sounds like a request or question to you, answer it.
     """
 
     static let alarmRules = """
@@ -93,6 +94,7 @@ final class RoomTools {
             fn("room_weather", "Weather now and the daily forecast up to a week ahead, at home (Warszawa) or in any Polish place.", ["day": str("today, tomorrow or a date YYYY-MM-DD within 7 days"), "place": str("Optional place name in the base form, e.g. Gzowo, Gdańsk; default is home")], []),
             fn("room_snooze", "Snooze: ring the alarm bell again in a few minutes.", ["minutes": int("Minutes, default 9")], []),
             fn("room_volume", "Set the room speaker volume.", ["level": int("0-100")], ["level"]),
+            fn("room_not_for_me", "Call this instead of answering when the last thing you heard was not addressed to you. Say nothing after calling it.", [:], []),
         ]
         if offline { d.append(fn("room_calendar", "Jurek's calendar events for a day.", ["day": enm(["today", "tomorrow"], "Which day")], [])) }
         return d
@@ -140,6 +142,8 @@ final class RoomTools {
             return ["ok": true, "rings_at": clock(a.fire)]
         case "room_weather":
             return await weather(day: args["day"] as? String ?? "today", place: args["place"] as? String)
+        case "room_not_for_me":
+            return ["ok": true]
         case "room_volume":
             let v = max(0, min(100, (args["level"] as? NSNumber)?.intValue ?? 50))
             let r = await osa("set volume output volume \(v)")

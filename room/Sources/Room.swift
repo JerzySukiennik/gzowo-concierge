@@ -37,6 +37,8 @@ final class Room: LiveEvents {
     private var lastHeard = Date()
     private var firstAudioLogged = false
     private var silenceTimer: Timer?
+    private var silenceDeadline = Date()
+    private var noiseFloor: Float = 0.01
     private var ringing: RoomAlarm?
     private var ringStop: Timer?
     private var hostBase: String?
@@ -73,7 +75,7 @@ final class Room: LiveEvents {
         audio.onChunk = { [weak self] chunk, level in
             guard let self else { return }
             self.audioQ.async { if !self.testFeeding { self.feed(chunk) } }
-            DispatchQueue.main.async { if self.phase == .listening { self.face.model.level = CGFloat(level) } }
+            DispatchQueue.main.async { self.voice(level) }
         }
         audio.onSpeechIdle = { [weak self] in self?.speechFinished() }
         Task { _ = await tools.osa("set volume input volume 85") }
@@ -208,10 +210,20 @@ final class Room: LiveEvents {
 
     private func armSilence(_ seconds: TimeInterval) {
         silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
-            guard let self, self.phase == .listening || self.phase == .connecting else { return }
-            self.endSession()
+        silenceDeadline = Date().addingTimeInterval(seconds)
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            guard self.phase == .listening || self.phase == .connecting else { return }
+            if Date() > self.silenceDeadline { t.invalidate(); self.endSession() }
         }
+    }
+
+    private func voice(_ level: Float) {
+        let speech = level > max(0.03, noiseFloor * 3)
+        if !speech { noiseFloor = noiseFloor * 0.97 + level * 0.03 }
+        guard phase == .listening || phase == .connecting else { return }
+        face.model.level = CGFloat(level)
+        if speech { silenceDeadline = max(silenceDeadline, Date().addingTimeInterval(8)) }
     }
 
     private func pollAnnouncements() {
@@ -280,7 +292,7 @@ final class Room: LiveEvents {
             lastHeard = Date()
             firstAudioLogged = false
             heardUser = true
-            if phase == .listening { armSilence(10) }
+            if phase == .listening { silenceDeadline = max(silenceDeadline, Date().addingTimeInterval(8)) }
         } else {
             assistantText = text
         }
@@ -324,6 +336,16 @@ final class Room: LiveEvents {
     }
 
     func liveTool(id: String, name: String, args: [String: Any]) {
+        if name == "room_not_for_me" {
+            NSLog("room: not for me: \(userText)")
+            link?.sendToolResult(id: id, name: name, response: ["ok": true, "note": "Stay silent and keep listening."])
+            answered = true
+            hostWorking = false
+            setPhase(.listening)
+            setStreaming(true)
+            armSilence(8)
+            return
+        }
         setPhase(.thinking)
         setStreaming(false)
         silenceTimer?.invalidate()
