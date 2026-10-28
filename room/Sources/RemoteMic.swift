@@ -18,10 +18,21 @@ final class RemoteMic {
     }
 
     func start(port: UInt16 = 47110) {
-        guard let p = NWEndpoint.Port(rawValue: port), let l = try? NWListener(using: .tcp, on: p) else { NSLog("room: remote mic listener failed"); return }
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        guard let p = NWEndpoint.Port(rawValue: port), let l = try? NWListener(using: params, on: p) else { NSLog("room: remote mic listener failed"); return }
         l.service = NWListener.Service(name: "MacPetite", type: "_gzowoear._tcp")
         l.newConnectionHandler = { [weak self] c in self?.accept(c) }
-        l.stateUpdateHandler = { state in if case .failed(let e) = state { NSLog("room: remote mic listener: \(e)") } }
+        l.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready: NSLog("room: remote mic listening on \(port)")
+            case .failed(let e):
+                NSLog("room: remote mic listener: \(e), retrying")
+                l.cancel()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.start(port: port) }
+            default: break
+            }
+        }
         l.start(queue: queue)
         listener = l
     }
