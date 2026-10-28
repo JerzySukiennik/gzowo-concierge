@@ -78,6 +78,15 @@ final class Room: LiveEvents {
         do { try audio.start() } catch { NSLog("room: audio failed: \(error.localizedDescription)") }
         probeHost()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.probeHost() }
+        let launched = Date()
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let c = Calendar.current.dateComponents([.hour, .minute], from: Date())
+            let alarmSoon = self.tools.alarms.items.contains { $0.fire.timeIntervalSinceNow < 900 }
+            guard c.hour == 3, (c.minute ?? 0) >= 30, Date().timeIntervalSince(launched) > 6 * 3600, self.phase == .asleep, self.ringing == nil, !alarmSoon else { return }
+            NSLog("room: nightly restart")
+            exit(0)
+        }
         NSLog("room: ready, wake=\(wake != nil), hosts=\(config.hosts.count), keys=\(config.geminiKeys.count)")
     }
 

@@ -5,14 +5,16 @@ The room speaker for Gzowo Concierge. It runs on MacPetite (MacBook 12" 2016, ma
 - **Wake word "Hej Gzowo"** is detected offline with [Vosk](https://alphacephei.com/vosk/) (Apache 2.0) and the small Polish model. The model does not know the word "Gzowo"; it hears it as "hej gazowa". The detector therefore uses a closed grammar in which that phrase competes with about 2000 everyday Polish words (`Resources/wake-words.txt`, from the [FrequencyWords](https://github.com/hermitdave/FrequencyWords) Polish list, MIT). A word-timing check then rejects matches where "hej" is stretched over other words: in real wake phrases it lasts 0.15-0.27 s with no gap before "Gzowo". Each wake and each rejected match saves a short clip in `~/Library/Application Support/ConciergeRoom/wakes/` (last 60) for tuning. No audio leaves the machine until the phrase is heard.
 - **When the main Mac is on**, the app connects to the Concierge host's `/live` with `client=room`. The host adds the room tools (`room_*`) to its own, forwards their calls back to the room, and stores the conversation in the thread "Pokój".
 - **When the main Mac is off**, the app talks to Gemini Live directly with its own keys. It uses the host prompt cached from the last connection and only the room tools. Conversations are queued and imported into "Pokój" (`POST /api/room/turns`) once the host is back.
-- **Room tools:** timers, alarms (classic bell) with spoken snooze and a morning brief after "Hej Gzowo, wstałem", weather for any Polish place up to a week ahead, Apple Music through Music.app, iMessage through Messages.app (trusted contacts send right away; anyone else needs a short spoken "tak" within 30 s), weather (Open-Meteo), volume, and the calendar (EventKit, offline mode only).
-- **Screen:** dark at rest. After the wake word, the Concierge face appears and follows the person in front of the camera (Vision face detection, camera on only while the face is shown).
+- **Room tools:** timers, alarms (classic bell) with spoken snooze and a morning brief after "Hej Gzowo, wstałem", weather for any Polish place up to a week ahead (Open-Meteo), Apple Music through Music.app, iMessage through Messages.app (trusted contacts send right away; anyone else needs a short spoken "tak" within 30 s), volume, and the calendar (EventKit, offline mode only).
+- **Screen:** the Concierge face is always on. Between conversations it sleeps (dimmed, closed eyes, Core Animation breathing and floating z's) and the backlight drops to 12% (2% from 22:00 to 7:00). The wake word opens its eyes, and it follows the person in front of the camera (Vision face detection, camera on only while awake). A click or key while it sleeps steps the window aside for 10 minutes.
+- **Conversation:** after every answer it keeps listening for about 9 s, so talk continues without the wake word.
+- **Upkeep:** the app restarts itself at 3:30 at night when idle (memory creeps up slowly); alarms survive in `alarms.json`.
 
 ## Build and install
 
 ```
 ./build.sh                         # app in Niepotrzebne/room-build (Vosk library and model downloaded to Niepotrzebne/room-vendor)
-./deploy.sh jurek@MacPetite.local  # app, settings, Gemini keys and LaunchAgent over SSH
+./deploy.sh                        # to jerzysukiennik@MacPetite.local: app, settings, Gemini keys and LaunchAgent over SSH
 ```
 
 Trusted contacts and location live in `Niepotrzebne/room-contacts.json`, which is never committed:
