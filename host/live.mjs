@@ -28,8 +28,19 @@ function namesRule() {
   return `NAMES: Jurek often says these proper names. When a word sounds close to one of them, it is that name; use and write it exactly like this: ${list.join('; ')}. Gzowo is the village with his family plot (do Gzowa, w Gzowie, z Gzowa); a place that sounds like Gdów or Gdowa is almost always Gzowo.`;
 }
 
+const PRONUNCIATION = `PRONUNCIATION: when you say these words aloud, say them like this (Polish spelling of the sound):
+- Gzowo, Gzowa, w Gzowie: a Polish place name. The g and z go straight together with no vowel between them: "gzo-wo", "gzo-wa", "w gzo-wie". Never "gazowo", "gie-zowo" or "dżizowo".
+- GSP (Gzowo Space Program): "gie es pe", the Polish letter names. The full name in English: "Gzowo spejs program".
+- Gzowo Labs: "gzo-wo labs". gzowo.fun: "gzowo kropka fan".
+- Claude: "klod". Claude Code: "klod kołd". Anthropic: "antropik". Haiku: "hajku".
+- Concierge: "konsjerż". Pupka: "pup-ka". MacPetite: "mak petit". MacBook: "makbuk". iPhone: "ajfon".
+- G-Micro, G-Mini, G-Core, G-Mega: "gie mikro", "gie mini", "gie kor", "gie mega".
+- GitHub: "githab". Kaggle: "kegl". Firebase: "fajerbejs". three.js: "tri dżej es". OpenRocket: "ołpen roket".
+- Narew: "na-rew". Bambu Lab: "bambu lab".
+Read other English names the way a Polish teenager says them, not letter by letter.`;
+
 export function voicePrompt() {
-  return `${systemPrompt()}\n\n${VOICE_RULES}\n\n${namesRule()}`;
+  return `${systemPrompt()}\n\n${VOICE_RULES}\n\n${namesRule()}\n\n${PRONUNCIATION}`;
 }
 
 export function liveSetup(extra = {}) {

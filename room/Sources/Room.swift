@@ -56,9 +56,13 @@ final class Room: LiveEvents {
         tools.alarms.onFire = { [weak self] a in self?.ring(a) }
         face.onUserInput = { [weak self] in self?.userTapped() }
         face.start()
-        if let path = Bundle.main.resourceURL?.appendingPathComponent("model").path { wake = WakeWord(modelPath: path) }
+        if let res = Bundle.main.resourceURL {
+            wake = WakeWord(modelPath: res.appendingPathComponent("model").path, wordsPath: res.appendingPathComponent("wake-words.txt").path)
+        }
+        wake?.onReject = { [weak self] _ in self?.saveClip("reject") }
         wake?.onWake = { [weak self] follows in
             guard let self else { return }
+            self.saveClip("wake")
             if self.recordLeft > 0 { NSLog("room: wake heard during recording"); return }
             let n = min(self.utteranceChunks, 80)
             let utterance = follows ? Array(self.ring.suffix(n)) : []
@@ -91,12 +95,23 @@ final class Room: LiveEvents {
         target?.sendAudio(chunk)
     }
 
+    private func saveClip(_ kind: String) {
+        let dir = RoomConfig.dir.appendingPathComponent("wakes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+        let pcm = ring.suffix(max(15, min(utteranceChunks + 3, 60))).reduce(Data(), +)
+        Self.writeWav(pcm, to: dir.appendingPathComponent("\(f.string(from: Date()))-\(kind).wav").path)
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        for old in files.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).dropFirst(60) { try? FileManager.default.removeItem(at: old) }
+    }
+
     private func setStreaming(_ on: Bool) {
         streamLock.lock(); streamTarget = on ? link : nil; streamLock.unlock()
     }
 
     private func woke(commandFollows: Bool, utterance: [Data]) {
         NSLog("room: wake (command follows: \(commandFollows), replay \(utterance.count) chunks)")
+        let afterAlarm = ringing?.kind == "alarm"
         if ringing != nil { stopRinging() }
         switch phase {
         case .speaking:
@@ -112,10 +127,11 @@ final class Room: LiveEvents {
         }
         if !commandFollows { audio.effect("wake", volume: 0.6) }
         face.wake(.listening)
-        beginSession(replay: utterance)
+        beginSession(replay: utterance, afterAlarm: afterAlarm)
     }
 
-    private func beginSession(replay: [Data]) {
+    private func beginSession(replay: [Data], afterAlarm: Bool = false) {
+        alarmContext = afterAlarm
         setPhase(.connecting)
         turnDone = false
         toolsInFlight = 0
@@ -145,10 +161,12 @@ final class Room: LiveEvents {
         return DirectLink(keys: config.geminiKeys, model: config.model, voice: config.voice, prompt: "\(base)\n\n\(rulesNow(offline: true))", tools: tools.declarations(offline: true), events: self)
     }
 
+    private var alarmContext = false
+
     private func rulesNow(offline: Bool) -> String {
         let now = Date()
         let f = DateFormatter(); f.locale = Locale(identifier: "pl_PL"); f.dateFormat = "EEEE d MMMM yyyy, HH:mm"
-        return "\(RoomTools.rules)\n\(offline ? RoomTools.offlineRules + "\n" : "")Now: \(f.string(from: now)) (Europe/Warsaw); said aloud: \"\(Self.spokenTime(now))\". For a later time of day call room_timers_list or count from this."
+        return "\(RoomTools.rules)\n\(offline ? RoomTools.offlineRules + "\n" : "")\(alarmContext ? RoomTools.alarmRules + "\n" : "")Now: \(f.string(from: now)) (Europe/Warsaw); said aloud: \"\(Self.spokenTime(now))\". For a later time of day call room_timers_list or count from this."
     }
 
     static func spokenTime(_ d: Date) -> String {

@@ -71,6 +71,10 @@ final class RoomTools {
     After each answer the speaker keeps listening for about nine seconds, so he can simply keep talking without the wake phrase. Do not end every reply with an offer or a question; just answer.
     """
 
+    static let alarmRules = """
+    CONTEXT: his alarm clock has just rung and he stopped it with the wake phrase. If he says he is up (for example "wstałem"), say good morning in one word and give a short morning brief: today's weather at home, today's calendar and anything important today, in three or four short sentences. If he asks to sleep longer ("jeszcze pięć minut"), call room_snooze with that many minutes and say when it rings.
+    """
+
     static let offlineRules = """
     His main computer with the full Concierge is off right now, so you only have the room tools; answer general questions from your own knowledge. For his calendar use room_calendar. For things that need the main Mac (notes in Pupka, memory, files, the Mac screen) say briefly it will work once his MacBook is on.
     """
@@ -85,7 +89,8 @@ final class RoomTools {
             fn("room_music_control", "Control the music in the room.", ["action": enm(["pause", "resume", "next", "previous", "volume"], "Action"), "value": int("Volume 0-100 for action volume")], ["action"]),
             fn("room_music_now", "What is playing now in the room.", [:], []),
             fn("room_message_send", "Send an iMessage from the assistant's account. Use the contact name in base form (mama, tata) or a phone number.", ["to": str("Contact name or phone number"), "text": str("Message text in Polish"), "confirmed": bool("True only after Jurek said yes to sending (not needed for trusted contacts)")], ["to", "text"]),
-            fn("room_weather", "Weather now and the forecast for today and tomorrow where Jurek lives.", ["day": enm(["today", "tomorrow"], "Which day")], []),
+            fn("room_weather", "Weather now and the daily forecast up to a week ahead, at home (Warszawa) or in any Polish place.", ["day": str("today, tomorrow or a date YYYY-MM-DD within 7 days"), "place": str("Optional place name in the base form, e.g. Gzowo, Gdańsk; default is home")], []),
+            fn("room_snooze", "Snooze: ring the alarm bell again in a few minutes.", ["minutes": int("Minutes, default 9")], []),
             fn("room_volume", "Set the room speaker volume.", ["level": int("0-100")], ["level"]),
         ]
         if offline { d.append(fn("room_calendar", "Jurek's calendar events for a day.", ["day": enm(["today", "tomorrow"], "Which day")], [])) }
@@ -128,8 +133,12 @@ final class RoomTools {
             return r.ok ? ["playing": r.out.isEmpty ? NSNull() : r.out as Any] : ["error": r.out]
         case "room_message_send":
             return await message(to: args["to"] as? String ?? "", text: args["text"] as? String ?? "", confirmed: args["confirmed"] as? Bool ?? false)
+        case "room_snooze":
+            let m = max(1, min(60, (args["minutes"] as? NSNumber)?.intValue ?? 9))
+            let a = alarms.add(kind: "alarm", label: "Drzemka", fire: Date().addingTimeInterval(TimeInterval(m * 60)))
+            return ["ok": true, "rings_at": clock(a.fire)]
         case "room_weather":
-            return await weather(day: args["day"] as? String ?? "today")
+            return await weather(day: args["day"] as? String ?? "today", place: args["place"] as? String)
         case "room_volume":
             let v = max(0, min(100, (args["level"] as? NSNumber)?.intValue ?? 50))
             let r = await osa("set volume output volume \(v)")
@@ -270,20 +279,37 @@ final class RoomTools {
         return res.ok ? ["ok": true, "sent_to": to] : ["error": "Nie wysłałem: \(res.out)"]
     }
 
-    private func weather(day: String) async -> [String: Any] {
+    private func geocode(_ name: String) async -> (String, Double, Double)? {
+        var c = URLComponents(string: "https://geocoding-api.open-meteo.com/v1/search")!
+        c.queryItems = [URLQueryItem(name: "name", value: name), URLQueryItem(name: "count", value: "1"), URLQueryItem(name: "language", value: "pl"), URLQueryItem(name: "countryCode", value: "PL")]
+        guard let url = c.url, let (d, _) = try? await URLSession.shared.data(from: url),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let r = (j["results"] as? [[String: Any]])?.first,
+              let lat = r["latitude"] as? Double, let lon = r["longitude"] as? Double else { return nil }
+        return (r["name"] as? String ?? name, lat, lon)
+    }
+
+    private func weather(day: String, place: String?) async -> [String: Any] {
+        var name = config.place, lat = config.latitude, lon = config.longitude
+        if let p = place?.trimmingCharacters(in: .whitespaces), !p.isEmpty, p.lowercased() != config.place.lowercased() {
+            guard let g = await geocode(p) else { return ["error": "Nie znalazłem miejscowości \(p). Podaj ją w mianowniku."] }
+            (name, lat, lon) = g
+        }
         var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         c.queryItems = [
-            URLQueryItem(name: "latitude", value: String(config.latitude)), URLQueryItem(name: "longitude", value: String(config.longitude)),
+            URLQueryItem(name: "latitude", value: String(lat)), URLQueryItem(name: "longitude", value: String(lon)),
             URLQueryItem(name: "current", value: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation"),
             URLQueryItem(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset"),
-            URLQueryItem(name: "timezone", value: "Europe/Warsaw"), URLQueryItem(name: "forecast_days", value: "2"),
+            URLQueryItem(name: "timezone", value: "Europe/Warsaw"), URLQueryItem(name: "forecast_days", value: "8"),
         ]
         guard let url = c.url, let (d, _) = try? await URLSession.shared.data(from: url),
               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               let daily = j["daily"] as? [String: Any] else { return ["error": "Pogoda niedostępna"] }
-        let i = day == "tomorrow" ? 1 : 0
+        let dates = daily["time"] as? [String] ?? []
+        let i: Int = day == "tomorrow" ? 1 : (day == "today" ? 0 : (dates.firstIndex(of: day) ?? -1))
+        guard i >= 0 else { return ["error": "Prognoza sięga tylko 7 dni do przodu", "available": dates] }
         func at(_ k: String) -> Any { (daily[k] as? [Any]).flatMap { $0.count > i ? $0[i] : nil } ?? NSNull() }
-        var out: [String: Any] = ["place": config.place, "day": day, "max": at("temperature_2m_max"), "min": at("temperature_2m_min"), "rain_chance": at("precipitation_probability_max"), "sky": Self.sky((at("weather_code") as? NSNumber)?.intValue ?? -1), "sunrise": at("sunrise"), "sunset": at("sunset")]
+        var out: [String: Any] = ["place": name, "day": dates.count > i ? dates[i] : day, "max": at("temperature_2m_max"), "min": at("temperature_2m_min"), "rain_chance": at("precipitation_probability_max"), "sky": Self.sky((at("weather_code") as? NSNumber)?.intValue ?? -1), "sunrise": at("sunrise"), "sunset": at("sunset")]
         if i == 0, let cur = j["current"] as? [String: Any] {
             out["now"] = ["temp": cur["temperature_2m"] ?? NSNull(), "feels": cur["apparent_temperature"] ?? NSNull(), "wind_kmh": cur["wind_speed_10m"] ?? NSNull(), "sky": Self.sky((cur["weather_code"] as? NSNumber)?.intValue ?? -1)]
         }

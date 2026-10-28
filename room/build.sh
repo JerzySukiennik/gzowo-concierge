@@ -23,6 +23,7 @@ cp Info.plist "$APP/Contents/Info.plist"
 cp "$VENDOR/vosk-osx-0.3.42/libvosk.dylib" "$APP/Contents/Frameworks/"
 install_name_tool -id @rpath/libvosk.dylib "$APP/Contents/Frameworks/libvosk.dylib"
 cp -R Resources/sounds "$APP/Contents/Resources/sounds"
+cp Resources/wake-words.txt "$APP/Contents/Resources/"
 rsync -a --exclude README "$VENDOR/vosk-model-small-pl-0.22/" "$APP/Contents/Resources/model/"
 
 swiftc -O -swift-version 5 -target x86_64-apple-macosx12.0 \
