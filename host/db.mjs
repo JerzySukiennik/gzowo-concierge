@@ -38,6 +38,8 @@ db.exec(`
     enc TEXT NOT NULL,
     ts INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS activity (ts INTEGER NOT NULL, app TEXT NOT NULL, title TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS activity_ts ON activity (ts);
   CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
     thread TEXT NOT NULL,
@@ -144,6 +146,13 @@ export const store = {
   pendingApprovals() {
     return db.prepare("SELECT * FROM approvals WHERE status = 'pending' ORDER BY ts").all()
       .map(r => ({ ...r, args: JSON.parse(r.args) }));
+  },
+  addActivity(app, title) {
+    db.prepare('INSERT INTO activity (ts, app, title) VALUES (?, ?, ?)').run(now(), app, title);
+    if (Math.random() < 0.01) db.prepare('DELETE FROM activity WHERE ts < ?').run(now() - 14 * 86400e3);
+  },
+  activityBetween(from, to) {
+    return db.prepare('SELECT ts, app, title FROM activity WHERE ts >= ? AND ts < ? ORDER BY ts').all(from, to);
   },
   resolveApproval(id, status, result) {
     db.prepare('UPDATE approvals SET status = ?, result = ? WHERE id = ?')

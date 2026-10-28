@@ -217,6 +217,11 @@ final class DirectLink: LiveLink {
         if let s = jsonString(msg) { task?.send(.string(s)) { _ in } }
     }
 
+    func sendText(_ text: String) {
+        guard !closed, ready, let s = jsonString(["realtimeInput": ["text": text]]) else { return }
+        task?.send(.string(s)) { _ in }
+    }
+
     func sendToolResult(id: String, name: String, response: [String: Any]) {
         guard !closed else { return }
         let msg: [String: Any] = ["toolResponse": ["functionResponses": [["id": id, "name": name, "response": response]]]]

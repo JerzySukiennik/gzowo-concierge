@@ -10,6 +10,8 @@ import { today } from './today.mjs';
 import { getAvatar, setAvatar } from './commands.mjs';
 import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade, voicePrompt, importRoomTurns } from './live.mjs';
+import { handleMacUpgrade } from './mac-link.mjs';
+import { takeAnnouncements } from './room.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
 import { listLogins, saveLogin, removeLogin } from './logins.mjs';
@@ -142,6 +144,7 @@ async function api(req, res, url) {
   if (p === '/api/push/unsubscribe' && req.method === 'POST') { removeSubscription(String((await readBody(req)).endpoint || '')); return json(res, 200, { ok: true, brief: getBrief() }); }
   if (p === '/api/clear' && req.method === 'POST') { clearThread(validThread((await readBody(req)).thread)); return json(res, 200, { ok: true }); }
   if (p === '/api/room/prompt') return json(res, 200, { prompt: voicePrompt() });
+  if (p === '/api/room/announcements') return json(res, 200, { items: takeAnnouncements() });
   if (p === '/api/room/turns' && req.method === 'POST') return json(res, 200, { imported: importRoomTurns((await readBody(req)).turns) });
   return json(res, 404, { error: 'not found' });
 }
@@ -180,6 +183,10 @@ server.on('upgrade', (req, socket) => {
   if (url.pathname === '/agent') {
     if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
     handleAgentUpgrade(req, socket); return;
+  }
+  if (url.pathname === '/mac') {
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }
+    handleMacUpgrade(req, socket); return;
   }
   if (url.pathname === '/dictate') {
     if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) { socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return; }

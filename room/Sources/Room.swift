@@ -16,6 +16,8 @@ final class Room: LiveEvents {
     private var ring: [Data] = []
     private var utteranceChunks = 0
     private var testFeeding = false
+    private lazy var announcer = Announcer(audio: audio)
+    private var announcements: [String] = []
     private var recording = Data()
     private var recordLeft = 0
     private var recordPath = ""
@@ -78,6 +80,7 @@ final class Room: LiveEvents {
         do { try audio.start() } catch { NSLog("room: audio failed: \(error.localizedDescription)") }
         probeHost()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.probeHost() }
+        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.pollAnnouncements() }
         let launched = Date()
         Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -121,6 +124,7 @@ final class Room: LiveEvents {
     private func woke(commandFollows: Bool, utterance: [Data]) {
         NSLog("room: wake (command follows: \(commandFollows), replay \(utterance.count) chunks)")
         let afterAlarm = ringing?.kind == "alarm"
+        if announcer.busy { announcer.stop() }
         if ringing != nil { stopRinging() }
         switch phase {
         case .speaking:
@@ -210,6 +214,34 @@ final class Room: LiveEvents {
         }
     }
 
+    private func pollAnnouncements() {
+        guard let base = hostBase, let url = URL(string: base + "/api/room/announcements") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 4)
+        req.setValue("Bearer \(config.token)", forHTTPHeaderField: "authorization")
+        URLSession.shared.dataTask(with: req) { [weak self] data, res, _ in
+            guard (res as? HTTPURLResponse)?.statusCode == 200, let data,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let items = j["items"] as? [[String: Any]], !items.isEmpty else { return }
+            let texts = items.compactMap { $0["text"] as? String }
+            DispatchQueue.main.async {
+                self?.announcements.append(contentsOf: texts)
+                self?.speakNext()
+            }
+        }.resume()
+    }
+
+    private func speakNext() {
+        guard phase == .asleep, ringing == nil, !announcer.busy, !announcements.isEmpty, !config.geminiKeys.isEmpty else { return }
+        let text = announcements.removeFirst()
+        NSLog("room: announcing '\(text)'")
+        face.wake(.speaking)
+        announcer.say(text, keys: config.geminiKeys, model: config.model, voice: config.voice) { [weak self] in
+            guard let self else { return }
+            if self.phase == .asleep && self.ringing == nil { self.face.sleep() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.speakNext() }
+        }
+    }
+
     private func endSession() {
         NSLog("room: session end")
         silenceTimer?.invalidate()
@@ -220,6 +252,7 @@ final class Room: LiveEvents {
         phase = .asleep
         flushOffline()
         if ringing == nil { face.sleep() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.speakNext() }
     }
 
     func liveReady() {

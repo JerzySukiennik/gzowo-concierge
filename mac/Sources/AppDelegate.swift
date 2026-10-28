@@ -9,6 +9,7 @@ import AppKit
     private let notch = NotchController()
     private let briefNotifier = BriefNotifier()
     private let lidFold = LidFoldController()
+    private let macLink = MacLink()
     private lazy var dictation = DictationController(hud: notch.model)
     private lazy var screenAgent = ScreenAgentController(hud: notch.model)
     private lazy var touchBarAssistant = TouchBarAssistant(model: notch.model)
@@ -71,6 +72,13 @@ import AppKit
         }
         touchBarAssistant.start()
         lidFold.start()
+        macLink.onShow = { [weak self] thread, url in
+            guard let self else { return }
+            self.windowController.show()
+            self.model.select(thread)
+            if let url { NSWorkspace.shared.open(url) }
+        }
+        macLink.start()
         NotificationCenter.default.addObserver(forName: .conciergePolicyChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.touchBarAssistant.policyChanged() } }
         status.setVisible(!notch.enabled)
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }

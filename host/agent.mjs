@@ -21,14 +21,14 @@ export async function callTool(thread, call, emit) {
     return { ok: false, status: 'pending_approval', note: 'Waiting for the user to approve in the app.' };
   }
   emit({ type: 'tool', name: tool.name, summary, status: 'running' });
-  const response = await executeTool(tool, args);
+  const response = await executeTool(tool, args, { thread });
   emit({ type: 'tool', name: tool.name, summary, status: response.ok ? 'done' : 'failed', error: response.error });
   return response;
 }
 
-async function executeTool(tool, args) {
+async function executeTool(tool, args, ctx) {
   try {
-    const result = await tool.run(args);
+    const result = await tool.run(args, ctx);
     return { ok: true, ...(typeof result === 'object' && result !== null ? result : { result }) };
   } catch (err) {
     return { ok: false, error: String(err.message || err) };
@@ -87,7 +87,7 @@ export async function resolveApproval(id, approve, emit, { quiet = false } = {})
   }
   const doing = tool.summarize(a.args);
   emit({ type: 'tool', name: tool.name, summary: doing, status: 'running' });
-  const response = await executeTool(tool, a.args);
+  const response = await executeTool(tool, a.args, { thread: a.thread });
   emit({ type: 'tool', name: tool.name, summary: doing, status: response.ok ? 'done' : 'failed', error: response.error });
   store.resolveApproval(id, response.ok ? 'done' : 'failed', response);
   const note = `[System: the user APPROVED "${a.summary}" and it was executed. Result: ${JSON.stringify(response)}]`;
