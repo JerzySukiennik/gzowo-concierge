@@ -180,7 +180,7 @@ public class EarService extends Service {
             socket.setTcpNoDelay(true);
             OutputStream out = socket.getOutputStream();
             listen(socket);
-            int source = prefs.getInt("source", MediaRecorder.AudioSource.CAMCORDER);
+            int source = prefs.getInt("source", MediaRecorder.AudioSource.MIC);
             out.write(("GZEAR1 " + android.os.Build.MODEL + " " + sourceName(source) + "\n").getBytes(StandardCharsets.UTF_8));
             r = new Recorder(source);
             getSharedPreferences("ear", MODE_PRIVATE).edit().putString("last", host).apply();
@@ -194,7 +194,7 @@ public class EarService extends Service {
                 if (cycleDue || (want >= 0 && want != source)) {
                     if (cycleDue) {
                         cycleIndex++;
-                        if (cycleIndex >= SOURCES.length) { cycleSeconds = 0; want = prefs.getInt("source", MediaRecorder.AudioSource.CAMCORDER); } else want = SOURCES[cycleIndex];
+                        if (cycleIndex >= SOURCES.length) { cycleSeconds = 0; want = prefs.getInt("source", MediaRecorder.AudioSource.MIC); } else want = SOURCES[cycleIndex];
                     }
                     wantedSource = -1;
                     r.close();

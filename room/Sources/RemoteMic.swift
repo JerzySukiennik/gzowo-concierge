@@ -86,11 +86,24 @@ final class RemoteMic {
             NSLog("room: remote mic connected (\(header))")
         }
         while buffer.count >= 3200 {
-            let chunk = Data(buffer.prefix(3200))
+            let chunk = amplify(Data(buffer.prefix(3200)))
             buffer = Data(buffer.dropFirst(3200))
             lock.lock(); last = Date(); lock.unlock()
             onChunk(chunk, Self.level(chunk))
         }
+    }
+
+    private var envelope: Double = 2000
+    private var gain: Double = 1
+
+    private func amplify(_ chunk: Data) -> Data {
+        var samples = chunk.withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
+        let peak = Double(samples.map { abs(Int($0)) }.max() ?? 0)
+        envelope = peak > envelope ? envelope * 0.7 + peak * 0.3 : max(800, envelope * 0.995)
+        let target = min(8, max(1, 14000 / envelope))
+        gain += (target - gain) * (target < gain ? 0.5 : 0.05)
+        for i in samples.indices { samples[i] = Int16(max(-32767, min(32767, Double(samples[i]) * gain))) }
+        return samples.withUnsafeBufferPointer { Data(buffer: $0) }
     }
 
     private static func level(_ chunk: Data) -> Float {
