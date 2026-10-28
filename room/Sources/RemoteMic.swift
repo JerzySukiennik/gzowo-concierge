@@ -26,6 +26,14 @@ final class RemoteMic {
         listener = l
     }
 
+    func send(_ line: String) {
+        queue.async { [weak self] in
+            guard let c = self?.conn else { NSLog("room: ear command dropped, phone not connected"); return }
+            c.send(content: Data((line + "\n").utf8), completion: .contentProcessed { _ in })
+            NSLog("room: ear command '\(line)'")
+        }
+    }
+
     private func accept(_ c: NWConnection) {
         conn?.cancel()
         conn = c

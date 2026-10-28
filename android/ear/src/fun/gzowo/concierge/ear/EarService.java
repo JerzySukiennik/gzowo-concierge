@@ -1,4 +1,4 @@
-// Concierge Ucho - foreground service: records the room at 16 kHz and streams it over the home Wi-Fi to the room speaker on MacPetite.
+// Concierge Ucho - foreground service: records the room at 16 kHz and streams it over the home Wi-Fi to the room speaker on MacPetite; MacPetite can switch the microphone mode over the same connection.
 package fun.gzowo.concierge.ear;
 
 import android.app.Notification;
@@ -20,6 +20,8 @@ import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.os.IBinder;
 import android.os.PowerManager;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -29,10 +31,13 @@ import java.util.concurrent.TimeUnit;
 
 public class EarService extends Service {
     static final String TYPE = "_gzowoear._tcp.";
+    static final int[] SOURCES = { MediaRecorder.AudioSource.MIC, MediaRecorder.AudioSource.CAMCORDER, MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.VOICE_COMMUNICATION, MediaRecorder.AudioSource.UNPROCESSED };
     static volatile String status = "Zatrzymane";
     static volatile float level = 0;
     static volatile boolean running = false;
 
+    private volatile int wantedSource = -1;
+    private volatile int cycleSeconds = 0;
     private Thread worker;
     private PowerManager.WakeLock wake;
     private WifiManager.WifiLock wifi;
@@ -131,26 +136,75 @@ public class EarService extends Service {
         return result[0] == null ? null : result;
     }
 
+    private static String sourceName(int s) {
+        switch (s) {
+            case MediaRecorder.AudioSource.MIC: return "mikrofon";
+            case MediaRecorder.AudioSource.CAMCORDER: return "kamera";
+            case MediaRecorder.AudioSource.VOICE_RECOGNITION: return "rozpoznawanie mowy";
+            case MediaRecorder.AudioSource.VOICE_COMMUNICATION: return "rozmowa";
+            case MediaRecorder.AudioSource.UNPROCESSED: return "bez obróbki";
+            default: return "źródło " + s;
+        }
+    }
+
+    private static final class Recorder {
+        final AudioRecord rec;
+        final AutomaticGainControl agc;
+        final NoiseSuppressor ns;
+
+        Recorder(int source) {
+            int min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+            rec = new AudioRecord(source, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, 6400) * 2);
+            boolean effects = source == MediaRecorder.AudioSource.VOICE_RECOGNITION;
+            agc = effects && AutomaticGainControl.isAvailable() ? AutomaticGainControl.create(rec.getAudioSessionId()) : null;
+            if (agc != null) agc.setEnabled(true);
+            ns = effects && NoiseSuppressor.isAvailable() ? NoiseSuppressor.create(rec.getAudioSessionId()) : null;
+            if (ns != null) ns.setEnabled(true);
+            rec.startRecording();
+        }
+
+        void close() {
+            try { rec.stop(); } catch (Exception ignored) {}
+            rec.release();
+            if (agc != null) agc.release();
+            if (ns != null) ns.release();
+        }
+    }
+
     private void stream(String host, int port) {
-        AudioRecord rec = null;
-        AutomaticGainControl agc = null;
-        NoiseSuppressor ns = null;
+        SharedPreferences prefs = getSharedPreferences("ear", MODE_PRIVATE);
+        Recorder r = null;
         try (Socket socket = new Socket()) {
             status = "Łączę z " + host + "…";
             socket.connect(new InetSocketAddress(host, port), 4000);
             socket.setTcpNoDelay(true);
             OutputStream out = socket.getOutputStream();
-            out.write(("GZEAR1 " + android.os.Build.MODEL + "\n").getBytes(StandardCharsets.UTF_8));
-            int min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, 6400) * 2);
-            if (AutomaticGainControl.isAvailable()) { agc = AutomaticGainControl.create(rec.getAudioSessionId()); if (agc != null) agc.setEnabled(true); }
-            if (NoiseSuppressor.isAvailable()) { ns = NoiseSuppressor.create(rec.getAudioSessionId()); if (ns != null) ns.setEnabled(true); }
-            rec.startRecording();
-            status = "Połączone z " + host;
+            listen(socket);
+            int source = prefs.getInt("source", MediaRecorder.AudioSource.CAMCORDER);
+            out.write(("GZEAR1 " + android.os.Build.MODEL + " " + sourceName(source) + "\n").getBytes(StandardCharsets.UTF_8));
+            r = new Recorder(source);
             getSharedPreferences("ear", MODE_PRIVATE).edit().putString("last", host).apply();
             byte[] buf = new byte[3200];
+            byte[] gap = new byte[16000];
+            long switched = System.currentTimeMillis();
+            int cycleIndex = 0;
             while (running) {
-                int n = rec.read(buf, 0, buf.length);
+                int want = wantedSource;
+                boolean cycleDue = cycleSeconds > 0 && System.currentTimeMillis() - switched > cycleSeconds * 1000L;
+                if (cycleDue || (want >= 0 && want != source)) {
+                    if (cycleDue) {
+                        cycleIndex++;
+                        if (cycleIndex >= SOURCES.length) { cycleSeconds = 0; want = prefs.getInt("source", MediaRecorder.AudioSource.CAMCORDER); } else want = SOURCES[cycleIndex];
+                    }
+                    wantedSource = -1;
+                    r.close();
+                    out.write(gap);
+                    source = want;
+                    r = new Recorder(source);
+                    switched = System.currentTimeMillis();
+                }
+                status = "Połączone z " + host + " (" + sourceName(source) + (cycleSeconds > 0 ? ", test" : "") + ")";
+                int n = r.rec.read(buf, 0, buf.length);
                 if (n <= 0) continue;
                 out.write(buf, 0, n);
                 long sum = 0;
@@ -161,10 +215,30 @@ public class EarService extends Service {
             status = "Brak połączenia, ponawiam…";
         } finally {
             level = 0;
-            if (rec != null) { try { rec.stop(); } catch (Exception ignored) {} rec.release(); }
-            if (agc != null) agc.release();
-            if (ns != null) ns.release();
+            if (r != null) r.close();
         }
+    }
+
+    private void listen(Socket socket) {
+        Thread t = new Thread(() -> {
+            try {
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                String line;
+                while ((line = in.readLine()) != null) {
+                    String[] p = line.trim().split(" ");
+                    if (p.length == 2 && p[0].equals("SOURCE")) {
+                        int s = Integer.parseInt(p[1]);
+                        getSharedPreferences("ear", MODE_PRIVATE).edit().putInt("source", s).apply();
+                        wantedSource = s;
+                    } else if (p.length == 2 && p[0].equals("CYCLE")) {
+                        wantedSource = SOURCES[0];
+                        cycleSeconds = Integer.parseInt(p[1]);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }, "ear-commands");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void pause(long ms) {

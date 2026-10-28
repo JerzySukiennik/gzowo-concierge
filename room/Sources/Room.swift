@@ -495,6 +495,8 @@ final class Room: LiveEvents {
 
     func snapshot(_ path: String) { face.snapshot(to: path) }
 
+    func earCommand(_ line: String) { remote.send(line) }
+
     func record(_ spec: String) {
         let parts = spec.split(separator: ":")
         guard let path = parts.first, let secs = parts.count > 1 ? Int(parts[1]) : 30 else { return }

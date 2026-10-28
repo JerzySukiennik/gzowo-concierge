@@ -15,6 +15,9 @@ final class RoomApp: NSObject, NSApplicationDelegate {
         DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.room-record"), object: nil, queue: .main) { [weak self] note in
             if let spec = note.object as? String { self?.room.record(spec) }
         }
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.room-ear"), object: nil, queue: .main) { [weak self] note in
+            if let line = note.object as? String { self?.room.earCommand(line) }
+        }
     }
 }
 
