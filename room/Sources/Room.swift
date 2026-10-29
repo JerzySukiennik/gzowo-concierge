@@ -36,6 +36,7 @@ final class Room: LiveEvents {
     private var answered = false
     private var hostWorking = false
     private var sessionStart = Date()
+    private var lastEvent = Date()
     private var lastHeard = Date()
     private var firstAudioLogged = false
     private var silenceTimer: Timer?
@@ -101,7 +102,7 @@ final class Room: LiveEvents {
         do { try audio.start() } catch { NSLog("room: audio failed: \(error.localizedDescription)") }
         probeHost()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.probeHost() }
-        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.pollAnnouncements() }
+        Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.pollAnnouncements(); self?.watchdog() }
         let launched = Date()
         Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -158,10 +159,15 @@ final class Room: LiveEvents {
         case .asleep:
             break
         default:
-            return
+            guard stale(after: 20) else { NSLog("room: wake ignored, \(phase) for %.0fs", Date().timeIntervalSince(sessionStart)); return }
+            NSLog("room: stale \(phase), %.0fs since last event, restarting", Date().timeIntervalSince(lastEvent))
+            endSession()
         }
+        let t0 = Date()
         if !commandFollows || quietChime { audio.effect("wake", volume: quietChime ? 0.35 : 0.6) }
+        let t1 = Date()
         face.wake(.listening)
+        if Date().timeIntervalSince(t0) > 1 { NSLog("room: slow wake: chime %.1fs, face %.1fs", t1.timeIntervalSince(t0), Date().timeIntervalSince(t1)) }
         beginSession(replay: utterance, afterAlarm: afterAlarm)
     }
 
@@ -174,6 +180,7 @@ final class Room: LiveEvents {
         hostWorking = false
         firstAudioLogged = false
         sessionStart = Date()
+        lastEvent = Date()
         lastHeard = Date()
         assistantText = ""
         heardUser = !replay.isEmpty
@@ -275,7 +282,7 @@ final class Room: LiveEvents {
     }
 
     private func endSession() {
-        NSLog("room: session end")
+        NSLog("room: session end after %.0fs", Date().timeIntervalSince(sessionStart))
         silenceTimer?.invalidate()
         setStreaming(false)
         link?.close()
@@ -287,13 +294,25 @@ final class Room: LiveEvents {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.speakNext() }
     }
 
+    private func stale(after seconds: TimeInterval) -> Bool {
+        link == nil || Date().timeIntervalSince(lastEvent) > (toolsInFlight > 0 ? 90 : seconds)
+    }
+
+    private func watchdog() {
+        guard phase != .asleep, !(phase == .speaking && audio.speaking), stale(after: 60) else { return }
+        NSLog("room: watchdog, \(phase) without events for %.0fs", Date().timeIntervalSince(lastEvent))
+        endSession()
+    }
+
     func liveReady() {
+        lastEvent = Date()
         NSLog("room: ready +%.1fs", Date().timeIntervalSince(sessionStart))
         if phase == .connecting { setPhase(.listening) }
     }
 
     func liveAudio(_ pcm24: Data) {
         guard phase != .asleep else { return }
+        lastEvent = Date()
         if phase != .speaking {
             setStreaming(false)
             silenceTimer?.invalidate()
@@ -306,6 +325,7 @@ final class Room: LiveEvents {
     }
 
     func liveTranscript(user: Bool, text: String) {
+        lastEvent = Date()
         if user {
             userText = text
             userAt = Date()
@@ -320,6 +340,7 @@ final class Room: LiveEvents {
 
     func liveTurnComplete() {
         NSLog("room: turn - user: \(userText) | assistant: \(assistantText)")
+        lastEvent = Date()
         turnDone = true
         if link?.viaHost == false { recordOffline() }
         if !audio.speaking { speechFinished() }
@@ -333,6 +354,7 @@ final class Room: LiveEvents {
     func liveThinking() {
         guard phase != .asleep else { return }
         NSLog("room: thinking +%.1fs", Date().timeIntervalSince(lastHeard))
+        lastEvent = Date()
         hostWorking = true
         answered = false
         firstAudioLogged = false
@@ -371,8 +393,10 @@ final class Room: LiveEvents {
         silenceTimer?.invalidate()
         toolsInFlight += 1
         answered = false
+        lastEvent = Date()
         Task { @MainActor in
             let result = await tools.handle(name, args)
+            lastEvent = Date()
             NSLog("room: tool \(name) \(args) -> \(result)")
             link?.sendToolResult(id: id, name: name, response: result)
             toolsInFlight = max(0, toolsInFlight - 1)

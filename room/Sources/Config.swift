@@ -11,7 +11,7 @@ struct RoomConfig {
     var longitude = 21.0122
     var place = "Warszawa"
     var voice = "Puck"
-    var model = "models/gemini-3.8-live"
+    var model = "models/gemini-3.1-flash-live-preview"
     var wakeThreshold: Float = 0.5
 
     static let dir: URL = {

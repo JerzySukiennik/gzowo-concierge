@@ -10,7 +10,7 @@ import { acceptUpgrade } from './ws.mjs';
 import { live } from './live-state.mjs';
 import crypto from 'node:crypto';
 
-const MODEL = process.env.LIVE_MODEL || 'models/gemini-3.8-live';
+const MODEL = process.env.LIVE_MODEL || 'models/gemini-3.1-flash-live-preview';
 const VOICE = process.env.LIVE_VOICE || 'Puck';
 const API = process.env.LIVE_API || 'v1beta';
 const URL_BASE = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${API}.GenerativeService.BidiGenerateContent`;
@@ -93,12 +93,22 @@ export async function mintLiveToken() {
   return { token: (await res.json()).name, model: MODEL };
 }
 
+let nextKey = 0;
+
+function liveKeys() {
+  const keys = config.apiKeys.length ? config.apiKeys : [config.apiKey].filter(Boolean);
+  const start = nextKey++ % Math.max(1, keys.length);
+  return [...keys.slice(start), ...keys.slice(0, start)];
+}
+
 export function handleLiveUpgrade(req, socket) {
   const params = new URL(req.url, 'http://x').searchParams;
   const room = params.get('client') === 'room';
   const thread = room ? ensureRoomThread() : validThread(params.get('thread'));
   store.ensureThread(thread);
   const rid = () => crypto.randomUUID();
+  const keys = liveKeys();
+  let attempt = 0;
   let upstream = null, ready = false, closed = false;
   let turn = { user: '', assistant: '', rid: rid() };
   let state = 'connecting';
@@ -159,14 +169,22 @@ export function handleLiveUpgrade(req, socket) {
   }
 
   function connectUpstream() {
-    upstream = new WebSocket(`${URL_BASE}?key=${encodeURIComponent(config.apiKey)}`);
-    upstream.addEventListener('open', () => { upstream.send(JSON.stringify({ setup: liveSetup(roomExtra || {}) })); });
-    upstream.addEventListener('message', async ev => {
+    const ws = new WebSocket(`${URL_BASE}?key=${encodeURIComponent(keys[attempt])}`);
+    upstream = ws;
+    ws.addEventListener('open', () => { ws.send(JSON.stringify({ setup: liveSetup(roomExtra || {}) })); });
+    ws.addEventListener('message', async ev => {
+      if (ws !== upstream) return;
       let m; try { m = JSON.parse(ev.data instanceof Blob ? await ev.data.text() : String(ev.data)); } catch { return; }
       onUpstream(m);
     });
-    upstream.addEventListener('error', () => { tell({ type: 'error', message: 'Połączenie z modelem głosowym nie powiodło się.' }); });
-    upstream.addEventListener('close', e => { if (!closed) { tell({ type: 'error', message: `Model głosowy rozłączył się (${e.code}${e.reason ? ': ' + e.reason.slice(0, 80) : ''}).` }); close(); } });
+    ws.addEventListener('close', e => {
+      if (closed || ws !== upstream) return;
+      const why = `${e.code}${e.reason ? ': ' + e.reason.slice(0, 80) : ''}`;
+      console.log(`[live] ${room ? 'room' : 'app'} key ${attempt + 1}/${keys.length} closed ${ready ? 'mid-session' : 'before setup'} (${why})`);
+      if (!ready && attempt + 1 < keys.length) { attempt++; connectUpstream(); return; }
+      tell({ type: 'error', message: `Model głosowy rozłączył się (${why}).` });
+      close();
+    });
   }
 
   async function onUpstream(m) {
@@ -218,7 +236,7 @@ export function handleLiveUpgrade(req, socket) {
     if (!fromSocket) conn.close(1000);
   }
 
-  if (!config.apiKey) { tell({ type: 'error', message: 'Brak klucza Gemini.' }); close(); return; }
+  if (!keys.length) { tell({ type: 'error', message: 'Brak klucza Gemini.' }); close(); return; }
   tell({ type: 'state', state: 'connecting' });
   if (!room) connectUpstream();
   else setTimeout(() => { if (!upstream && !closed) connectUpstream(); }, 3000);
