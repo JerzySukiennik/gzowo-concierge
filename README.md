@@ -21,7 +21,7 @@ On request ("zrób plan klasy") the assistant starts a background job (`host/cla
   - scans and PDFs in `~/Documents/Szkoła/<subject>/`.
 - **Questions:** when Sonnet needs Jurek, the question comes back through the channel the job came from. That is the live voice session (Gemini asks him and passes his answer with `class_plan_answer`), the room speaker, or the chat thread with a push notification.
 - **The PDF:** it is printed by headless Chrome in the Minimal look (`host/classplan-render.mjs`). Every page carries a note that the information comes from Jurek and may be incomplete. The PDF opens on the Mac and is copied to `~/Documents/Szkoła/Plany klasy/`.
-- **Sending:** nothing is posted to WhatsApp yet. When it is, every message will carry the same note and "Made by Gzowo Concierge".
+- **Sending:** nothing is posted to WhatsApp yet. When it is, the PDF goes with a short plain message built in code ("Załączam PDF z planem na cały tydzień 2-6 listopada."), followed by the same note as the PDF in italics and "Made by Gzowo Concierge". Every message the assistant sends there carries that note.
 
 The Anthropic key comes from the key saved in settings or `ANTHROPIC_API_KEY(S)` in `.env`.
 
