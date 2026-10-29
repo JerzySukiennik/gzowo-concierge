@@ -21,9 +21,16 @@ On request ("zrób plan klasy") the assistant starts a background job (`host/cla
   - scans and PDFs in `~/Documents/Szkoła/<subject>/`.
 - **Questions:** when Sonnet needs Jurek, the question comes back through the channel the job came from. That is the live voice session (Gemini asks him and passes his answer with `class_plan_answer`), the room speaker, or the chat thread with a push notification.
 - **The PDF:** it is printed by headless Chrome in the Minimal look (`host/classplan-render.mjs`). Every page carries a note that the information comes from Jurek and may be incomplete. The PDF opens on the Mac and is copied to `~/Documents/Szkoła/Plany klasy/`.
-- **Sending:** nothing is posted to WhatsApp yet. When it is, the PDF goes with a short plain message built in code ("Załączam PDF z planem na cały tydzień 2-6 listopada."), followed by the same note as the PDF in italics and "Made by Gzowo Concierge". Every message the assistant sends there carries that note.
+- **Sending:** the PDF is not posted to WhatsApp yet (attachments are not supported yet). When it is, it goes with a short plain message built in code ("Załączam PDF z planem na cały tydzień 2-6 listopada."), followed by the same note as the PDF in italics and "Made by Gzowo Concierge".
 
 The Anthropic key comes from the key saved in settings or `ANTHROPIC_API_KEY(S)` in `.env`.
+
+## WhatsApp messages
+
+`whatsapp_send` sends a text message from Jurek's WhatsApp on the main Mac, by voice or chat, without a confirmation step (his choice).
+- **Finding the chat:** the host looks up the name in WhatsApp Desktop's local database (`host/whatsapp.mjs`). An exact name wins; several partial matches come back as a list, so the assistant asks which one.
+- **Sending:** the Concierge Mac app (`mac/Sources/WhatsAppSender.swift`, needs Accessibility) brings WhatsApp to the front, searches the chat, opens it, clicks the composer, pastes the text, checks that it arrived intact and presses Return. It restores the clipboard and the previous app. It stops before any keystroke if WhatsApp is not in front, if the screen is locked or if the chat already has an unsent draft.
+- **Signature:** code adds "Made by Gzowo Concierge" to every message. In the class groups it also adds the note that the information comes from Jurek and may be incomplete, in italics.
 
 ## Run
 

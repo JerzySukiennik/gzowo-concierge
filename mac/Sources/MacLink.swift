@@ -1,4 +1,4 @@
-// Gzowo Concierge for macOS - standing link to the host (/mac): whole-screen screenshots on request, showing a thread or a link, and a once-a-minute sample of the app in use for the day summary.
+// Gzowo Concierge for macOS - standing link to the host (/mac): whole-screen screenshots on request, showing a thread or a link, sending WhatsApp messages, and a once-a-minute sample of the app in use for the day summary.
 import AppKit
 import ScreenCaptureKit
 
@@ -78,6 +78,16 @@ final class MacLink {
             let url = (m["url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
             onShow(thread, url)
             send(["id": id, "ok": true])
+        case "whatsapp":
+            let query = m["query"] as? String ?? "", target = m["target"] as? String ?? "", text = m["text"] as? String ?? ""
+            Task { @MainActor in
+                do {
+                    let result = try await WhatsAppSender.send(query: query, target: target.isEmpty ? query : target, text: text, dryRun: m["dryRun"] as? Bool ?? false)
+                    self.send(["id": id, "ok": true, "result": result])
+                } catch {
+                    self.send(["id": id, "error": error.localizedDescription])
+                }
+            }
         default:
             send(["id": id, "error": "unknown request"])
         }

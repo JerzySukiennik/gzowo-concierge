@@ -1,4 +1,4 @@
-// Gzowo Concierge - WhatsApp Desktop, read only: class groups, their messages and attachments straight from the app's local database.
+// Gzowo Concierge - WhatsApp Desktop from its local database: class groups with their messages and attachments, and chat names for sending.
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -68,6 +68,28 @@ export function waMessages({ group, from, to, limit = 400 }) {
       messages.push(m);
     }
     return { group: g.name, from: local(start).slice(0, 10), to: local(end).slice(0, 10), count: messages.length, messages };
+  } finally { db.close(); }
+}
+
+const clean = s => String(s || '').replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
+const fold = s => clean(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
+const digits = s => (/^[\d\s+()\-,]+$/.test(clean(s)) ? clean(s).replace(/\D/g, '') : '');
+
+export const isClassGroup = name => classGroups().some(n => clean(name).startsWith(n));
+
+export function waFindChat(name) {
+  const db = open();
+  try {
+    const rows = db.prepare('SELECT ZPARTNERNAME name, ZSESSIONTYPE type, ZLASTMESSAGEDATE last FROM ZWACHATSESSION WHERE ZSESSIONTYPE IN (0, 1) AND IFNULL(ZREMOVED, 0) = 0 AND ZPARTNERNAME IS NOT NULL ORDER BY ZLASTMESSAGEDATE DESC').all()
+      .map(r => ({ name: clean(r.name), kind: r.type === 1 ? 'group' : 'person' }))
+      .filter(r => r.name && r.name !== 'You');
+    const q = fold(name), qd = digits(name);
+    if (!q) return { candidates: [] };
+    const exact = rows.filter(r => fold(r.name) === q || (qd.length >= 6 && digits(r.name).endsWith(qd)));
+    const found = exact.length ? exact : rows.filter(r => fold(r.name).includes(q) || fold(r.name).split(/\s+/).some(w => w.startsWith(q)));
+    const unique = [...new Map(found.map(r => [r.name, r])).values()];
+    if (unique.length === 1 && found.length === 1) return { chat: unique[0] };
+    return { candidates: unique.slice(0, 8), duplicate: unique.length === 1 };
   } finally { db.close(); }
 }
 
