@@ -31,6 +31,7 @@ if (!env.RELAY_SID) {
 
 export const config = {
   apiKey: env.GEMINI_API_KEY || '',
+  anthropicKeys: (env.ANTHROPIC_API_KEYS || env.ANTHROPIC_API_KEY || '').split(',').map(s => s.trim()).filter(Boolean),
   token: env.CONCIERGE_TOKEN,
   port: Number(env.PORT || 2040),
   host: env.HOST || '0.0.0.0',

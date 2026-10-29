@@ -5,6 +5,7 @@ import { store } from './db.mjs';
 import { config, ROOT } from './config.mjs';
 import { listSkills } from './skills.mjs';
 import { activeConnectorLines, plannedNames } from './connectors/index.mjs';
+import { pendingClassPlanQuestion } from './classplan.mjs';
 
 const DEFAULT_PERSONA = fs.readFileSync(path.join(ROOT, 'host', 'persona.md'), 'utf8').trim();
 
@@ -32,6 +33,7 @@ function capabilities() {
 - Search the live web for current facts.
 - Remember durable facts about him, and learn new skills he teaches you.
 - See which payment cards are saved (label, brand, last 4 digits only).
+- Make the two-week class plan PDF for class 8K (tests, days off, study notes) with Claude Sonnet in the background: class_plan_start. It may ask him questions through you.
 ${extra.length ? 'Connected services and their tools:\n' + extra.join('\n') + '\n' : ''}What you cannot do yet: send iMessages, order food, make phone calls, pay for anything, send email${planned.length ? ', and use services that are not connected yet (' + planned.join(', ') + ')' : ''}. If he asks for something you cannot do, say so in one short sentence and offer the closest thing you can do. If a service exists but is not connected, tell him he can connect it in settings under Konektory. When he asks what you can do, list only the real capabilities above, in a few short lines. Never claim abilities you do not have.`;
 }
 
@@ -51,6 +53,8 @@ export function systemPrompt() {
   const memory = facts.length ? facts.map(f => `[${f.id}] ${f.text}`).join('\n') : '(empty)';
   const skills = listSkills();
   const skillList = skills.length ? skills.map(s => `- ${s.name}: ${s.description}`).join('\n') : '(none)';
+  const question = pendingClassPlanQuestion();
+  const open = question ? `\n\nOpen question from the class plan job (Claude Sonnet) to Jurek: "${question}". Ask it if he has not answered yet; pass his answer with class_plan_answer.` : '';
   return `${getPersona()}
 
 ${PROFILE}
@@ -65,5 +69,5 @@ ${skillList}
 Current time: ${nowLine()}
 
 What you remember about Jurek:
-${memory}`;
+${memory}${open}`;
 }

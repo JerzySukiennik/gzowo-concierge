@@ -125,7 +125,7 @@ export function handleLiveUpgrade(req, socket) {
     onClose: () => close(true),
   });
   if (!conn) return;
-  const me = { notify: note => sendUp({ realtimeInput: { text: note } }) };
+  const me = { thread, notify: note => sendUp({ realtimeInput: { text: note } }) };
   live.sessions.add(me);
 
   const tell = o => conn.open && conn.sendText(JSON.stringify(o));

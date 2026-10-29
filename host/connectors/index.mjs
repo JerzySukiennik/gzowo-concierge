@@ -6,7 +6,7 @@ const byId = Object.fromEntries(connectors.map(c => [c.id, c]));
 
 const BASE_LABELS = {
   'calendar.read': 'Kalendarz: czytanie', 'calendar.write': 'Kalendarz: dodawanie i zmiany', 'calendar.delete': 'Kalendarz: usuwanie',
-  'web.search': 'Wyszukiwanie w sieci', 'memory.write': 'Zapamiętywanie', 'skills.write': 'Umiejętności: zapisywanie',
+  'web.search': 'Wyszukiwanie w sieci', 'school.plan': 'Plan klasy', 'memory.write': 'Zapamiętywanie', 'skills.write': 'Umiejętności: zapisywanie',
 };
 
 export const connectorTools = connectors.flatMap(c => c.tools || []);

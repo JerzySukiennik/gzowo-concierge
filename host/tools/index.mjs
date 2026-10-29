@@ -6,12 +6,13 @@ import { memoryTools } from './memory.mjs';
 import { skillTools } from './skills.mjs';
 import { paymentTools } from './payment.mjs';
 import { macTools } from './mac.mjs';
+import { classPlanTools } from './classplan.mjs';
 import { connectorTools, isActive } from '../connectors/index.mjs';
 
 calendarTools.forEach(t => { t.connector = 'calendar'; });
 webTools.forEach(t => { t.connector = 'web'; });
 
-export const tools = [...calendarTools, ...webTools, ...memoryTools, ...skillTools, ...paymentTools, ...macTools, ...connectorTools];
+export const tools = [...calendarTools, ...webTools, ...memoryTools, ...skillTools, ...paymentTools, ...macTools, ...classPlanTools, ...connectorTools];
 
 export const LOCKED_ASK = new Set(['payment.pay', 'message.new_contact']);
 export const toolByName = Object.fromEntries(tools.map(t => [t.name, t]));
