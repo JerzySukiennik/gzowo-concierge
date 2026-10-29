@@ -9,7 +9,7 @@ export const classPlanTools = [
     name: 'class_plan_start',
     action: 'school.plan',
     policy: 'auto',
-    description: "Start the two-week plan PDF for Jurek's class 8K: tests and quizzes, days off, school events and study notes for every test, built by Claude Sonnet in the background from the school calendar, Pupka, the class WhatsApp groups and his school scans. It takes several minutes; you are told when it has a question for him or is done. Use when he asks for the class plan, 'plan klasy', 'ogłoszenie dla klasy na dwa tygodnie' or similar. Without dates it covers the next two school weeks.",
+    description: "Start the weekly plan PDF for Jurek's class 8K: tests and quizzes with what each one covers, days off and school events, built by Claude Sonnet in the background from the school calendar, Pupka, the class WhatsApp groups and his school scans. It takes several minutes; you are told when it has a question for him or is done. Use when he asks for the class plan, 'plan klasy', 'ogłoszenie dla klasy na tydzień' or similar. Without dates it covers the next school week.",
     parameters: { type: 'object', properties: {
       from: { type: 'string', description: `Optional start, ${D}` },
       to: { type: 'string', description: `Optional end, ${D}` },
