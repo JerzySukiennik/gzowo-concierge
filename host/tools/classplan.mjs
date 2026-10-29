@@ -1,5 +1,5 @@
-// Gzowo Concierge - tools that start the class plan job, carry Jurek's answers to it and show the finished PDF.
-import { startClassPlan, answerClassPlan, classPlanStatus, showClassPlan } from '../classplan.mjs';
+// Gzowo Concierge - tools that start the class plan job, carry Jurek's answers to it, show the finished PDF and send it to the class group.
+import { startClassPlan, answerClassPlan, classPlanStatus, showClassPlan, sendClassPlan } from '../classplan.mjs';
 
 const ROOM = 'pokoj';
 const D = 'YYYY-MM-DD';
@@ -48,5 +48,14 @@ export const classPlanTools = [
     parameters: { type: 'object', properties: {} },
     summarize: () => 'Otwieram plan klasy na Macu',
     run: () => showClassPlan(),
+  },
+  {
+    name: 'class_plan_send',
+    action: 'whatsapp.send',
+    policy: 'auto',
+    description: "Send the finished class plan PDF to the class announcements WhatsApp group with the fixed short message and the note, both built in code. Use only when Jurek says to send or post the plan ('wyślij plan', 'wrzuć plan na grupę'). It goes out at once. If this plan was already sent it refuses; pass again=true only when he clearly asks to send it a second time.",
+    parameters: { type: 'object', properties: { again: { type: 'boolean', description: 'Send a plan that was already sent once more' } } },
+    summarize: () => 'Wysyłam plan klasy na grupę klasową',
+    run: ({ again }) => sendClassPlan({ again: !!again }),
   },
 ];

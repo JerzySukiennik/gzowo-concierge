@@ -9,7 +9,7 @@ import { store } from './db.mjs';
 import { streamMessage, forHistory, claudeReady } from './claude.mjs';
 import { cal } from './tools/calendar.mjs';
 import { pupkaList, pupkaRead, pupkaSearch } from './connectors/pupka.mjs';
-import { waGroups, waMessages, waAttachment, classGroups } from './whatsapp.mjs';
+import { waGroups, waMessages, waAttachment, classGroups, waSend } from './whatsapp.mjs';
 import { renderPlan } from './classplan-render.mjs';
 import { announce } from './room.mjs';
 import { pushAll } from './push.mjs';
@@ -385,15 +385,15 @@ async function finish(j, plan) {
   j.shared = shared;
   const tests = plan.tests.length, events = plan.events.length;
   const where = j.origin.kind === 'cli' ? `PDF: ${pdf}.` : `Otworzyłem PDF na Macu${shared ? ', leży też w Dokumenty/Szkoła/Plany klasy' : ''}.`;
-  const text = `Plan klasy na ${periodLabel(j.from, j.to)} jest gotowy: ${tests ? `${tests} ${plural(tests, 'test', 'testy', 'testów')}` : 'bez testów'} i ${events} ${plural(events, 'termin', 'terminy', 'terminów')} w kalendarzu. ${where} Nic nie wysyłam, dopóki go nie sprawdzisz.`;
-  await deliver(j, text, `The class plan job is done: ${plan.summary} The PDF is open on the main Mac${shared ? ' and saved in Dokumenty/Szkoła/Plany klasy' : ''}. Tell Jurek in one or two short sentences that it is ready for his check, and that nothing is sent until he approves.`);
+  const text = `Plan klasy na ${periodLabel(j.from, j.to)} jest gotowy: ${tests ? `${tests} ${plural(tests, 'test', 'testy', 'testów')}` : 'bez testów'} i ${events} ${plural(events, 'termin', 'terminy', 'terminów')} w kalendarzu. ${where} Nic nie wysyłam, dopóki nie powiesz „wyślij plan”.`;
+  await deliver(j, text, `The class plan job is done: ${plan.summary} The PDF is open on the main Mac${shared ? ' and saved in Dokumenty/Szkoła/Plany klasy' : ''}. Tell Jurek in one or two short sentences that it is ready for his check, and that it goes to the class group only when he says to send it.`);
 }
 
 function publicState(j) {
   if (!j) return null;
   return {
     id: j.id, status: j.status, from: j.from, to: j.to, period: periodLabel(j.from, j.to), started: j.started, finished: j.finished || null,
-    question: j.question?.text || null, activity: j.activity || null, error: j.error || null, pdf: j.pdf || null, shared: j.shared || null,
+    question: j.question?.text || null, activity: j.activity || null, error: j.error || null, pdf: j.pdf || null, shared: j.shared || null, sent: j.sent || null,
     cost_usd: Math.round(j.cost * 100) / 100,
   };
 }
@@ -457,6 +457,20 @@ export function showClassPlan() {
   if (!file) throw new Error('Nie ma jeszcze gotowego planu klasy.');
   execFile('open', [file], () => {});
   return { opened: true, period: last.period };
+}
+
+export async function sendClassPlan({ again = false } = {}) {
+  const last = classPlanStatus();
+  if (last?.status !== 'done') throw new Error('Nie ma gotowego planu klasy do wysłania.');
+  const file = [last.shared, last.pdf].find(f => f && fs.existsSync(f));
+  if (!file) throw new Error('Nie widzę PDF-a z planem.');
+  if (last.sent && !again) throw new Error(`Ten plan już poszedł do „${last.sent.to}” (${last.sent.at}).`);
+  const r = await waSend({ to: classGroups()[0], text: `Załączam PDF z planem na cały tydzień ${last.period}.`, file });
+  if (!r.sent) throw new Error(`Nie wiem, która grupa to „${classGroups()[0]}”.`);
+  const sent = { to: r.to, at: dayKey(new Date()) + ' ' + new Intl.DateTimeFormat('pl-PL', { timeZone: config.timezone, hour: '2-digit', minute: '2-digit' }).format(new Date()) };
+  if (job?.id === last.id) job.sent = sent;
+  store.setSetting('classPlanLast', { ...last, sent });
+  return { sent: true, to: r.to, period: last.period, file: r.file, text: r.text };
 }
 
 export const currentClassPlanJob = () => job;

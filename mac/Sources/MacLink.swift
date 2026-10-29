@@ -82,7 +82,8 @@ final class MacLink {
             let query = m["query"] as? String ?? "", target = m["target"] as? String ?? "", text = m["text"] as? String ?? ""
             Task { @MainActor in
                 do {
-                    let result = try await WhatsAppSender.send(query: query, target: target.isEmpty ? query : target, text: text, dryRun: m["dryRun"] as? Bool ?? false)
+                    let file = (m["file"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    let result = try await WhatsAppSender.send(query: query, target: target.isEmpty ? query : target, text: text, file: file, dryRun: m["dryRun"] as? Bool ?? false)
                     self.send(["id": id, "ok": true, "result": result])
                 } catch {
                     self.send(["id": id, "error": error.localizedDescription])

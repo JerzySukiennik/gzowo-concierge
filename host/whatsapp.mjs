@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { config } from './config.mjs';
 import { store } from './db.mjs';
+import { macRequest } from './mac-link.mjs';
+import { DISCLAIMER, SIGNATURE } from './classplan-render.mjs';
 
 const BASE = process.env.WHATSAPP_DIR || path.join(os.homedir(), 'Library/Group Containers/group.net.whatsapp.WhatsApp.shared');
 const EPOCH = 978307200;
@@ -91,6 +93,24 @@ export function waFindChat(name) {
     if (unique.length === 1 && found.length === 1) return { chat: unique[0] };
     return { candidates: unique.slice(0, 8), duplicate: unique.length === 1 };
   } finally { db.close(); }
+}
+
+export function signed(chat, text) {
+  const body = String(text || '').trim();
+  return isClassGroup(chat) ? `${body}\n\n_${DISCLAIMER}_\n${SIGNATURE}` : `${body}\n\n${SIGNATURE}`;
+}
+
+export async function waSend({ to, text, file }) {
+  if (!String(text || '').trim()) throw new Error('Pusta wiadomość.');
+  const found = waFindChat(to);
+  if (!found.chat) {
+    if (!found.candidates.length) throw new Error(`Nie mam w WhatsAppie czatu „${to}”.`);
+    if (found.duplicate) throw new Error(`W WhatsAppie są co najmniej dwa czaty o nazwie „${found.candidates[0].name}”, nie umiem ich rozróżnić.`);
+    return { sent: false, candidates: found.candidates.map(c => `${c.name} (${c.kind === 'group' ? 'grupa' : 'osoba'})`), note: 'Ask him which one he means, then call again with that exact name.' };
+  }
+  const message = signed(found.chat.name, text);
+  await macRequest('whatsapp', { query: found.chat.name, target: found.chat.name, text: message, file: file || '' }, file ? 80000 : 60000);
+  return { sent: true, to: found.chat.name, kind: found.chat.kind, text: message, ...(file ? { file: path.basename(file) } : {}) };
 }
 
 export function waAttachment(id) {
