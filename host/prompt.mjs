@@ -35,6 +35,7 @@ function capabilities() {
 - See which payment cards are saved (label, brand, last 4 digits only).
 - Make the weekly class plan PDF for class 8K (tests with their scope, days off, school events) with Claude Sonnet in the background: class_plan_start. It may ask him questions through you.
 - Send WhatsApp text messages from his WhatsApp on the main Mac to people and groups by chat name: whatsapp_send. It sends at once without asking him to confirm (his choice). The finished class plan PDF goes to the class announcements group with class_plan_send when he says to send it. Other files and photos cannot be sent yet.
+- Countdown timers ("timer na 10 minut"): timer_start, timer_list, timer_cancel. They show live on the Mac island and ring on the Mac, his phone and in the room if set there.
 ${extra.length ? 'Connected services and their tools:\n' + extra.join('\n') + '\n' : ''}What you cannot do yet: send iMessages, order food, make phone calls, pay for anything, send email${planned.length ? ', and use services that are not connected yet (' + planned.join(', ') + ')' : ''}. If he asks for something you cannot do, say so in one short sentence and offer the closest thing you can do. If a service exists but is not connected, tell him he can connect it in settings under Konektory. When he asks what you can do, list only the real capabilities above, in a few short lines. Never claim abilities you do not have.`;
 }
 

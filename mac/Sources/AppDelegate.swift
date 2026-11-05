@@ -1,5 +1,6 @@
 // Gzowo Concierge for macOS - application lifecycle, main menu, bridge between the web UI and native pieces.
 import AppKit
+import Combine
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowController: MainWindowController!
@@ -13,6 +14,9 @@ import AppKit
     private lazy var dictation = DictationController(hud: notch.model)
     private lazy var screenAgent = ScreenAgentController(hud: notch.model)
     private lazy var touchBarAssistant = TouchBarAssistant(model: notch.model)
+    private let levels = SystemLevels()
+    private let media = MediaController()
+    private var mediaSink: AnyCancellable?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         guard ProcessInfo.processInfo.environment["CONCIERGE_BASE"] == nil, ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] == nil,
@@ -70,8 +74,10 @@ import AppKit
                 ? AgentState(finished: true, ok: true, summary: "Sformatowałem nagłówek: pogrubiłem tylko tytuł dokumentu i odznaczyłem tekst.")
                 : AgentState(active: true, step: 2, total: 5, narration: "Wpisuję imię i nazwisko")
         }
+        touchBarAssistant.openLive = { [weak self] in self?.openLive() }
         touchBarAssistant.start()
-        lidFold.start()
+        startLiveActivities()
+        if ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] == nil { lidFold.start() }
         macLink.onShow = { [weak self] thread, url in
             guard let self else { return }
             self.windowController.show()
@@ -87,6 +93,34 @@ import AppKit
         monitor.start()
         LoginAgent.sync()
         if !(LoginAgent.launchedAsIsland && notch.enabled) { windowController.show() }
+    }
+
+    private func startLiveActivities() {
+        let island = notch.model
+        levels.onChange = { [weak self] e in Task { @MainActor in self?.notch.model.showLevel(e) } }
+        levels.onMediaKey = { [weak self] in Task { @MainActor in try? await Task.sleep(for: .milliseconds(350)); self?.notch.model.peekMedia() } }
+        levels.start()
+        media.onChange = { [weak self] track, play in
+            guard let self else { return }
+            island.setMedia(self.media.info, art: self.media.art, icon: self.media.appIcon)
+            if track && self.media.info.playing { self.notch.model.peekMedia(for: 3.2) } else if play && !track { self.notch.model.peekMedia() }
+        }
+        mediaSink = Publishers.CombineLatest3(media.$info, media.$art, media.$appIcon).sink { info, art, icon in
+            Task { @MainActor in island.setMedia(info, art: art, icon: icon) }
+        }
+        island.mediaCommand = { [weak self] cmd in self?.media.send(cmd) }
+        island.mediaSeek = { [weak self] s in self?.media.seek(to: s) }
+        media.start()
+    }
+
+    @objc private func toggleLevels(_ sender: NSMenuItem) {
+        levels.enabled.toggle()
+        sender.state = levels.enabled ? .on : .off
+    }
+
+    @objc private func toggleMedia(_ sender: NSMenuItem) {
+        media.enabled.toggle()
+        sender.state = media.enabled ? .on : .off
     }
 
     private func applyAppearance() {
@@ -214,6 +248,12 @@ import AppKit
         let dict = NSMenuItem(title: "Dyktowanie (⌃⌥)", action: #selector(toggleDictation(_:)), keyEquivalent: ""); dict.target = self
         dict.state = dictation.enabled ? .on : .off
         view.addItem(dict)
+        let lv = NSMenuItem(title: "Głośność i jasność na wyspie", action: #selector(toggleLevels(_:)), keyEquivalent: ""); lv.target = self
+        lv.state = levels.enabled ? .on : .off
+        view.addItem(lv)
+        let md = NSMenuItem(title: "Teraz grane na wyspie", action: #selector(toggleMedia(_:)), keyEquivalent: ""); md.target = self
+        md.state = media.enabled ? .on : .off
+        view.addItem(md)
         let tb = NSMenuItem(title: "Asystent na Touch Barze", action: #selector(toggleTouchBar(_:)), keyEquivalent: ""); tb.target = self
         tb.state = touchBarAssistant.enabled ? .on : .off
         view.addItem(tb)

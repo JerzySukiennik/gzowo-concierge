@@ -305,7 +305,7 @@ function renderBanner() {
   app.classList.toggle('has-banner', !!msg);
   const st = !state.online || !state.link ? 'offline' : state.busy ? 'busy' : 'idle';
   app.dataset.state = st;
-  $('tbSt').textContent = st === 'busy' ? 'Pracuję' : st === 'offline' ? 'Offline' : '';
+  $('tbSt').textContent = st === 'busy' ? 'Pracuję' : '';
   $('tbSt').dataset.s = st;
   fit();
 }

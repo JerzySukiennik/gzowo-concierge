@@ -6,6 +6,20 @@ import { createFace, followPointer } from '../face.js';
 import { paintOrbs } from './avatar.js';
 
 const STATUS_TEXT = { running: 'w toku', done: 'gotowe', failed: 'nie udało się' };
+const PAST = {
+  Sprawdzam: 'Sprawdziłem', Wysyłam: 'Wysłałem', Usuwam: 'Usunąłem', Zmieniam: 'Zmieniłem', Zbieram: 'Zebrałem', Zapominam: 'Zapomniałem',
+  Zapisuję: 'Zapisałem', Zapamiętuję: 'Zapamiętałem', Zaczynam: 'Zacząłem', Wyłączam: 'Wyłączyłem', Wczytuję: 'Wczytałem', Ustawiam: 'Ustawiłem',
+  Szukam: 'Wyszukałem', Przekazuję: 'Przekazałem', Pokazuję: 'Pokazałem', Patrzę: 'Spojrzałem', Otwieram: 'Otworzyłem', Ogłaszam: 'Ogłosiłem',
+  Dodaję: 'Dodałem', Czytam: 'Przeczytałem', Zamieniam: 'Zamieniłem', Tworzę: 'Utworzyłem', Dopisuję: 'Dopisałem', Zakładam: 'Założyłem',
+  Włączam: 'Włączyłem', Przenoszę: 'Przeniosłem', Odhaczam: 'Odhaczyłem',
+};
+
+function tense(summary, status) {
+  const m = /^(\p{Lu}\p{Ll}+)(.*)$/su.exec(summary || '');
+  const past = m && PAST[m[1]];
+  if (!past || status === 'running') return summary;
+  return status === 'failed' ? 'Nie ' + past.charAt(0).toLowerCase() + past.slice(1) + m[2] : past + m[2];
+}
 
 function greeting() {
   const h = new Date().getHours();
@@ -127,7 +141,7 @@ export function createThread({ log, root, onStick }) {
       s = { node, status: '' };
       steps.set(key, s);
     }
-    s.node.querySelector('.s-t').textContent = summary;
+    s.node.querySelector('.s-t').textContent = tense(summary, status);
     const err = s.node.querySelector('.s-err');
     err.textContent = status === 'failed' && error ? error : '';
     if (s.status !== status) {

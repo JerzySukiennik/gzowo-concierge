@@ -1,4 +1,4 @@
-// Gzowo Concierge for macOS - owns the notch panel: placement above the menu bar, hover and click behaviour, tight panel sizing, show/hide setting.
+// Gzowo Concierge for macOS - owns the island panel: placement above the menu bar, hover (grow, then open), click, fullscreen hiding with transient activities on top, show/hide setting.
 import AppKit
 import Combine
 import SwiftUI
@@ -19,7 +19,9 @@ final class NotchController {
     private var expandWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
     private var blinkTimer: Timer?
-    private let margin: CGFloat = 36
+    private var todayTimer: Timer?
+    private let margin: CGFloat = 40
+    private let dwell: Double = 0.25
     private let key = "notchEnabled"
 
     var enabled: Bool {
@@ -43,6 +45,7 @@ final class NotchController {
         panel = p
 
         model.expandRequest = { [weak self] in self?.expand() }
+        model.focusRequest = { [weak self] in self?.expand(focus: true) }
         model.collapseRequest = { [weak self] in self?.collapse() }
         model.openApp = { [weak self] in self?.collapse(); self?.onOpenApp() }
         model.openLive = { [weak self] in self?.collapse(); self?.onOpenLive() }
@@ -50,20 +53,59 @@ final class NotchController {
         model.$pending.removeDuplicates().sink { [weak self] list in
             guard let self else { return }
             if !list.isEmpty && !self.model.expanded { self.expand(focus: false) }
-            self.resizePanel()
         }.store(in: &cancellables)
-        Publishers.CombineLatest3(model.$reply, model.$streaming, model.$errorText).sink { [weak self] _ in
-            DispatchQueue.main.async { self?.resizePanel() }
+        Publishers.CombineLatest3(model.$hud, model.$alarm, model.$agent).sink { [weak self] _ in
+            DispatchQueue.main.async { self?.refreshFullscreen() }
         }.store(in: &cancellables)
-        model.$nextEvent.sink { [weak self] _ in DispatchQueue.main.async { self?.resizePanel() } }.store(in: &cancellables)
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.layoutForScreen(); self?.resizePanel() }
         }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.model.refreshToday(force: true) }
+        }
+        todayTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in Task { @MainActor in self?.model.refreshToday(force: true) } }
         installMonitors()
         startFullscreenWatch()
         layoutForScreen()
         apply()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.model.refreshToday(force: true) }
+        if ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] != nil { installTestHooks() }
+    }
+
+    private func installTestHooks() {
+        DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.island-test"), object: nil, queue: .main) { [weak self] n in
+            let cmd = (n.object as? String) ?? ""
+            Task { @MainActor in self?.runTest(cmd) }
+        }
+    }
+
+    private func runTest(_ cmd: String) {
+        let parts = cmd.split(separator: ":").map(String.init)
+        let arg = parts.count > 1 ? Float(parts[1]) ?? 0.5 : 0.5
+        switch parts.first ?? "" {
+        case "expand": expand(focus: false)
+        case "focus": expand(focus: true)
+        case "collapse": collapse()
+        case "hover": model.hovering = true
+        case "unhover": model.hovering = false
+        case "volume": model.showLevel(LevelEvent(kind: .volume, value: arg))
+        case "mute": model.showLevel(LevelEvent(kind: .volume, value: arg, muted: true))
+        case "airpods": model.showLevel(LevelEvent(kind: .volume, value: arg, device: "AirPods Jurka"))
+        case "brightness": model.showLevel(LevelEvent(kind: .brightness, value: arg))
+        case "keyboard": model.showLevel(LevelEvent(kind: .keyboard, value: arg))
+        case "peek": model.peekMedia(for: 8)
+        case "event": model.upcoming = [UpcomingEvent(title: "Fizyka", start: Date().addingTimeInterval(Double(arg) * 60), end: Date().addingTimeInterval(Double(arg) * 60 + 2700), allDay: false)]; model.retick()
+        case "noevent": model.upcoming = []; model.retick()
+        case "reply": model.reply = "Jutro w Warszawie **8°C**, rano mgła, po południu przejaśnienia. Wiatr słaby z zachodu, deszcz mało prawdopodobny. Weź lekką kurtkę na rano."
+        case "noreply": model.clearReply()
+        case "busy": model.streaming = arg > 0.5
+        case "fakemedia":
+            var n = NowPlaying(); n.title = "The Mentalist, Season 3"; n.app = "Prime Video"; n.playing = arg > 0.5; n.duration = 2549; n.elapsed = 1788; n.stamp = Date(); n.artId = "x"
+            model.setMedia(n, art: NSImage(contentsOfFile: "/System/Library/Desktop Pictures/.thumbnails/Big Sur Coastline.heic") ?? NSImage(named: NSImage.applicationIconName), icon: nil)
+        case "nomedia": model.setMedia(NowPlaying(), art: nil, icon: nil)
+        default: break
+        }
     }
 
     var onOpenApp: () -> Void = {}
@@ -80,21 +122,17 @@ final class NotchController {
         layoutForScreen()
         panel.ignoresMouseEvents = true
         panel.setFrame(panelFrame, display: true)
-        refreshFullscreen()
+        refreshFullscreen(probe: true)
     }
 
     private func layoutForScreen() {
         let s = screen
-        var size = CGSize(width: 190, height: 24)
+        var size = CGSize(width: 190, height: max(22, NSStatusBar.system.thickness))
         if s.safeAreaInsets.top > 0 {
             let l = s.auxiliaryTopLeftArea?.width ?? 0, r = s.auxiliaryTopRightArea?.width ?? 0
             size = CGSize(width: max(150, s.frame.width - l - r + 6), height: s.safeAreaInsets.top)
         }
-        model.closedSize = size
-    }
-
-    private var shapeSize: CGSize {
-        model.expanded ? CGSize(width: model.openSize.width, height: model.openHeight) : model.closedSize
+        if model.closedSize != size { model.closedSize = size }
     }
 
     private var panelFrame: NSRect {
@@ -104,8 +142,16 @@ final class NotchController {
     }
 
     private var shapeRect: NSRect {
-        let s = screen.frame, size = shapeSize
+        let s = screen.frame, size = model.shapeSize
         return NSRect(x: s.midX - size.width / 2, y: s.maxY - size.height, width: size.width, height: size.height)
+    }
+
+    private var pillHit: NSRect {
+        let s = screen.frame
+        let c = model.compactSize(model.primary)
+        var r = NSRect(x: s.midX - c.width / 2 - 8, y: s.maxY - c.height - 5, width: c.width + 16, height: c.height + 5)
+        if model.secondary != nil { r.size.width += model.bubbleSize.width + 7 }
+        return r
     }
 
     private func resizePanel() {
@@ -128,9 +174,12 @@ final class NotchController {
         return false
     }
 
-    func refreshFullscreen() {
+    private var fullscreen = false
+
+    func refreshFullscreen(probe: Bool = false) {
         guard enabled, let panel else { return }
-        let hide = screenIsFullscreen() && model.agent.ask == nil
+        if probe || !fullscreen { fullscreen = screenIsFullscreen() }
+        let hide = fullscreen && !model.transient
         guard hide != hiddenForFullscreen else { return }
         hiddenForFullscreen = hide
         if hide { collapse(); panel.orderOut(nil) } else { panel.setFrame(panelFrame, display: true); panel.orderFrontRegardless() }
@@ -140,10 +189,10 @@ final class NotchController {
         let ws = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
             ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.refreshFullscreen(); try? await Task.sleep(for: .milliseconds(700)); self?.refreshFullscreen() }
+                Task { @MainActor in self?.refreshFullscreen(probe: true); try? await Task.sleep(for: .milliseconds(700)); self?.refreshFullscreen(probe: true) }
             }
         }
-        Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in Task { @MainActor in self?.refreshFullscreen() } }
+        Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in Task { @MainActor in self?.refreshFullscreen(probe: true) } }
     }
 
     private func apply() {
@@ -158,14 +207,24 @@ final class NotchController {
         }
     }
 
-    func expand(focus: Bool = true) {
-        collapseWork?.cancel(); expandWork?.cancel()
-        guard enabled, !model.expanded else { return }
+    func expand(focus: Bool = false) {
+        collapseWork?.cancel(); collapseWork = nil
+        expandWork?.cancel(); expandWork = nil
+        guard enabled, !hiddenForFullscreen else { return }
+        if model.expanded {
+            if focus && !panel.isKeyWindow { model.wantsFocus = true; panel.makeKey() }
+            return
+        }
         if !model.streaming && !model.reply.isEmpty && model.replyThread != model.activeThread() { model.clearReply() }
         if model.agent.finished && !model.agent.active { model.agent = AgentState() }
+        if model.alarm != nil { model.stopAlarm() }
         model.wantsFocus = focus
+        model.hovering = false
+        model.peek = false
         model.expanded = true
         model.refreshToday()
+        model.retick()
+        panel.ignoresMouseEvents = false
         if focus { panel.makeKey() }
         blinkTimer?.invalidate()
         blinkTimer = Timer.scheduledTimer(withTimeInterval: 4.3, repeats: true) { [weak self] _ in
@@ -179,10 +238,12 @@ final class NotchController {
     }
 
     func collapse() {
-        collapseWork?.cancel(); expandWork?.cancel()
+        collapseWork?.cancel(); collapseWork = nil
+        expandWork?.cancel(); expandWork = nil
         guard model.expanded else { return }
         blinkTimer?.invalidate(); blinkTimer = nil
         model.expanded = false
+        model.hovering = false
         panel.resignKey()
     }
 
@@ -192,8 +253,12 @@ final class NotchController {
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if !self.model.expanded { if !self.model.agent.active && self.pillHit.contains(NSEvent.mouseLocation) { if self.model.agent.finished { self.expand() } else { self.onOpenApp() } }; return }
-                if !self.shapeRect.insetBy(dx: -6, dy: -6).contains(NSEvent.mouseLocation) { self.model.pending.isEmpty ? self.collapse() : () }
+                let p = NSEvent.mouseLocation
+                if !self.model.expanded {
+                    if !self.model.agent.active && self.pillHit.contains(p) { self.model.alarm != nil ? self.model.stopAlarm() : self.expand(focus: true) }
+                    return
+                }
+                if !self.shapeRect.insetBy(dx: -6, dy: -6).contains(p), self.model.pending.isEmpty { self.collapse() }
             }
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] e in
@@ -211,35 +276,38 @@ final class NotchController {
 
     var windowNumber: Int { panel.windowNumber }
 
-    private var pillHit: NSRect {
-        let s = screen.frame, c = model.closedSize
-        if model.agent.visible { let a = model.agentSize; return NSRect(x: s.midX - a.width / 2 - 6, y: s.maxY - a.height - 6, width: a.width + 12, height: a.height + 6) }
-        return NSRect(x: s.midX - c.width / 2 - 10, y: s.maxY - c.height - 4, width: c.width + 20, height: c.height + 4)
-    }
-
     private func mouseMoved() {
         guard enabled, !hiddenForFullscreen else { return }
         let p = NSEvent.mouseLocation
-        if !model.expanded && !model.agent.visible && model.dictation == .idle,
+        if !model.expanded && !model.agent.visible && model.dictation == .idle && !model.transient,
            let s = NSScreen.screens.first(where: { $0.frame.contains(p) }), s != screen { follow(s) }
         let over = model.expanded ? shapeRect.insetBy(dx: -4, dy: -4).contains(p) : pillHit.contains(p)
         if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
         if !model.expanded {
-            if pillHit.contains(p) && !model.agent.active {
+            let canOpen = !model.agent.active && model.dictation == .idle && model.alarm == nil
+            if over && canOpen {
+                if !model.hovering { model.hovering = true }
                 if expandWork == nil {
-                    let w = DispatchWorkItem { [weak self] in self?.expandWork = nil; self?.expand(focus: false) }
+                    let w = DispatchWorkItem { [weak self] in
+                        guard let self else { return }
+                        self.expandWork = nil
+                        if self.pillHit.contains(NSEvent.mouseLocation) { self.expand(focus: false) }
+                    }
                     expandWork = w
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: w)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + dwell, execute: w)
                 }
-            } else { expandWork?.cancel(); expandWork = nil }
+            } else {
+                expandWork?.cancel(); expandWork = nil
+                if model.hovering { model.hovering = false }
+            }
         } else {
             let r = shapeRect
-            model.look = CGSize(width: max(-1, min(1, (p.x - (r.minX + 44)) / 300)), height: max(-1, min(1, ((r.maxY - 32) - p.y) / 200)))
+            model.look = CGSize(width: max(-1, min(1, (p.x - (r.minX + 50)) / 300)), height: max(-1, min(1, ((r.maxY - 30) - p.y) / 200)))
             if r.insetBy(dx: -16, dy: -16).contains(p) { collapseWork?.cancel(); collapseWork = nil }
-            else if !model.sticky, collapseWork == nil {
+            else if !model.sticky && !panel.isKeyWindow, collapseWork == nil {
                 let w = DispatchWorkItem { [weak self] in self?.collapseWork = nil; self?.collapse() }
                 collapseWork = w
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: w)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: w)
             }
         }
     }

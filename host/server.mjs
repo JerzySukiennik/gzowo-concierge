@@ -12,6 +12,7 @@ import { startRelay, pairingUrl } from './relay.mjs';
 import { handleLiveUpgrade, voicePrompt, importRoomTurns } from './live.mjs';
 import { handleMacUpgrade } from './mac-link.mjs';
 import { takeAnnouncements } from './room.mjs';
+import { startTimer, cancelTimer, extendTimer, dismissTimer, timerState, startTimers } from './timers.mjs';
 import { getPersona, isDefaultPersona, setPersona } from './prompt.mjs';
 import { listSkills, deleteSkill } from './skills.mjs';
 import { listLogins, saveLogin, removeLogin } from './logins.mjs';
@@ -57,6 +58,14 @@ async function api(req, res, url) {
     return json(res, 200, getAvatar());
   }
   if (p === '/api/today') return json(res, 200, await today(url.searchParams.get('refresh') === '1'));
+  if (p === '/api/timers' && req.method === 'GET') return json(res, 200, { timers: timerState() });
+  if (p === '/api/timers' && req.method === 'POST') { const { seconds, label } = await readBody(req); return json(res, 200, startTimer({ seconds, label })); }
+  const tm = p.match(/^\/api\/timers\/([\w-]+)\/(cancel|add|dismiss)$/);
+  if (tm && req.method === 'POST') {
+    const body = await readBody(req);
+    const r = tm[2] === 'add' ? extendTimer({ id: tm[1], seconds: body.seconds }) : tm[2] === 'dismiss' ? dismissTimer(tm[1]) : cancelTimer({ id: tm[1] });
+    return json(res, 200, r);
+  }
   if (p === '/api/threads' && req.method === 'GET') return json(res, 200, { threads: threadList() });
   if (p === '/api/threads' && req.method === 'POST') return json(res, 200, { id: newThread() });
   const th = p.match(/^\/api\/threads\/([\w-]+)(?:\/(rename|restore))?$/);
@@ -196,4 +205,4 @@ server.on('upgrade', (req, socket) => {
   handleLiveUpgrade(req, socket);
 });
 
-server.listen(config.port, config.host, () => { console.log(`Gzowo Concierge on http://localhost:${config.port}`); startRelay(); startBrief(); });
+server.listen(config.port, config.host, () => { console.log(`Gzowo Concierge on http://localhost:${config.port}`); startRelay(); startBrief(); startTimers(); });

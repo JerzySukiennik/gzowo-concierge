@@ -13,6 +13,14 @@ struct PendingItem: Equatable, Identifiable {
     var summary: String
 }
 
+struct TimerInfo: Identifiable, Equatable {
+    var id: String
+    var label: String
+    var ends: Date
+    var total: Double
+    var done: Date?
+}
+
 struct HostState: Equatable {
     var online = false
     var busy = false
@@ -26,6 +34,7 @@ struct HostState: Equatable {
     var briefTs = 0.0
     var briefText = ""
     var briefThread = "poranny-brief"
+    var timers: [TimerInfo] = []
 }
 
 final class HostMonitor {
@@ -76,6 +85,10 @@ final class HostMonitor {
                         next.briefTs = last["ts"] as? Double ?? 0
                         next.briefText = last["text"] as? String ?? ""
                     }
+                }
+                next.timers = (json["timers"] as? [[String: Any]] ?? []).compactMap { t in
+                    guard let id = t["id"] as? String, let ends = t["ends"] as? Double else { return nil }
+                    return TimerInfo(id: id, label: t["label"] as? String ?? "", ends: Date(timeIntervalSince1970: ends / 1000), total: t["total"] as? Double ?? 0, done: (t["done"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) })
                 }
                 next.hasThreads = json["threads"] != nil
                 next.threads = (json["threads"] as? [[String: Any]] ?? []).compactMap { t in

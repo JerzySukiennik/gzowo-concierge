@@ -9,6 +9,7 @@ import { policyLabels } from './connectors/index.mjs';
 import { live } from './live-state.mjs';
 import { getBrief, briefBus } from './brief.mjs';
 import { vapidPublicKey } from './push.mjs';
+import { timerState, onTimersChange } from './timers.mjs';
 
 export const THREAD = 'main';
 
@@ -55,11 +56,13 @@ export function snapshot() {
     avatar: getAvatar(),
     brief: getBrief(),
     vapid: vapidPublicKey(),
+    timers: timerState(),
   };
 }
 
 const changed = () => bus.emit('state');
 briefBus.on('change', changed);
+onTimersChange(changed);
 
 function track(rid, send, thread) {
   return e => { const ev = { ...e, rid, thread }; send(ev); bus.emit('event', ev); };

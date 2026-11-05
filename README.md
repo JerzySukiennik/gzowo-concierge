@@ -32,6 +32,24 @@ The Anthropic key comes from the key saved in settings or `ANTHROPIC_API_KEY(S)`
 - **Sending:** the Concierge Mac app (`mac/Sources/WhatsAppSender.swift`, needs Accessibility) brings WhatsApp to the front, types the chat name into search, opens the chat and checks its header, clicks the composer, pastes the text (or the file, with the text as its caption), checks that it arrived intact and presses Send. It restores the clipboard and the previous app. It stops before any keystroke if WhatsApp is not in front, if the screen is locked or if the chat already has an unsent draft.
 - **Signature:** code adds "Made by Gzowo Concierge" to every message. In the class groups it also adds the note that the information comes from Jurek and may be incomplete, in italics.
 
+## The island
+
+The Mac app draws a black island at the top of the screen (`mac/Sources/Notch*.swift`). It is one shape that springs between live activities; content melts in and out with a blur.
+- **Priority:** volume or brightness, dictation, the screen agent, a finished timer, a track change, then Concierge at work, a running timer, the next event (within 30 minutes), and music. The second activity shows as a small bubble next to the island.
+- **Volume, brightness, keyboard light:** `SystemLevels.swift` takes over the media keys with an event tap (needs Accessibility) and sets volume (CoreAudio), screen brightness (DisplayServices) and the keyboard light (CoreBrightness) itself, so the level shows on the island instead of the system bezel. Option plus a key still opens the system settings, Option+Shift gives fine steps. Changes made elsewhere (the Touch Bar slider, AirPods) show too.
+- **Now playing:** macOS no longer lets ordinary apps read MediaRemote, so `mac/media/nowplaying.m` is a small library that the app loads into `/usr/bin/perl`, which still may. It prints one JSON line per change (title, app, progress, artwork) and reads play, pause, next, previous and seek commands from stdin. The island shows the artwork with an equalizer; opening it shows a card with progress and controls.
+- **Hover:** the island grows a little under the pointer and opens after 0.25 s; a click opens it at once with the text field focused. Opened by click it stays until a click outside or Esc.
+- **Fullscreen:** the island hides, except for levels, a finished timer and agent questions.
+- Menu View: "Głośność i jasność na wyspie", "Teraz grane na wyspie".
+
+## Timers
+
+"Ustaw timer na 10 minut" starts a countdown (`host/timers.mjs`, tools `timer_start`, `timer_list`, `timer_cancel`). It shows on the island with a ring and the time left. When it ends the Mac rings and the phone gets a push; a timer set in the room is also announced by the room speaker. The island can add a minute or cancel it.
+
+## Touch Bar
+
+The Concierge icon in the Control Strip opens a full-width bar: close, the text you type, live voice and "open in island". The reply is one continuous line you can scroll with a finger.
+
 ## Run
 
 ```sh
