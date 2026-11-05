@@ -15,10 +15,8 @@ enum LoginAgent {
 
     static func sync() {
         let fm = FileManager.default
-        guard enabled, let exe = Bundle.main.executablePath, exe.hasPrefix("/Applications/") || exe.contains("/Applications/") else {
-            try? fm.removeItem(at: plistURL)
-            return
-        }
+        guard enabled else { try? fm.removeItem(at: plistURL); return }
+        guard let exe = Bundle.main.executablePath, exe.hasPrefix("/Applications/") || exe.contains("/Applications/") else { return }
         let plist: [String: Any] = [
             "Label": label,
             "ProgramArguments": [exe, "--island"],
