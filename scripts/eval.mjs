@@ -22,6 +22,9 @@ stub('timer_cancel', () => ({ cancelled: 1 }));
 stub('whatsapp_send', a => ({ sent: true, to: 'Felix', kind: 'person', text: `${a.text}\n\nMade by Gzowo Concierge` }));
 let weatherPlace = 'Warszawa';
 stub('weather', () => ({ place: weatherPlace, now: { temp: 18, feelsLike: 17, sky: 'pochmurno', wind_kmh: 12, rain_mm: 0 }, days: [] }));
+stub('blog_draft', a => ({ draft: { id: 'draft-1', title: a.title, status: 'draft', pictures: (a.pictures || []).length, project: a.project || null, text: a.text }, note: 'Draft saved, not visible on the site yet. Publish only after he says so, with blog_publish.' }));
+stub('blog_projects', () => ({ projects: [{ slug: 'raft', name: 'Raft', section: 'games' }, { slug: 'gsp-rockets', name: 'GSP Rockets', section: 'hardware' }] }));
+stub('blog_list', () => ({ posts: [] }));
 const realList = toolByName.calendar_list.run;
 let listOverride = null;
 toolByName.calendar_list.run = async a => { calls.push({ name: 'calendar_list', args: a }); return listOverride ? listOverride(a) : realList(a); };
@@ -50,6 +53,7 @@ const SCENARIOS = [
   { id: 'whatsapp-sends-plain', say: 'Napisz na WhatsAppie do Felixa, że będę o 18', check: () => { const c = find('whatsapp_send'); return !!c && /felix/i.test(c.args.to) && /18/.test(c.args.text) && !/Gzowo Concierge/i.test(c.args.text); } },
   { id: 'timer-sets-seconds', say: 'Ustaw timer na pizzę na 12 minut', check: () => { const c = find('timer_start'); return !!c && c.args.seconds === 720 && /pizz/i.test(c.args.label || '') && !names().includes('calendar_add'); } },
   { id: 'class-plan-send', say: 'Wyślij plan klasy na grupę', check: () => names().includes('class_plan_send') && !names().includes('whatsapp_send') && !names().includes('class_plan_start') },
+  { id: 'blog-drafts-not-publishes', say: 'Dodaj na bloga post, że skończyłem nowy silnik do rakiety GSP, ma 20 N ciągu i w sobotę testuję go na działce w Gzowie', check: (r) => { const c = find('blog_draft'); return !!c && /silnik/i.test(`${c.args.title} ${c.args.text}`) && /20\s?N/.test(c.args.text || '') && !names().includes('blog_publish') && !r.approvals.length && r.text.length < 500; } },
   { id: 'style-no-dashes-no-markdown', say: 'Opowiedz mi krótko, co to jest akumulator litowo-jonowy', check: ({ text }) => !/[—–]/.test(text) && !/\*\*/.test(text) && !/^#/m.test(text) },
 ];
 

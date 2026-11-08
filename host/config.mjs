@@ -38,6 +38,7 @@ export const config = {
   host: env.HOST || '0.0.0.0',
   chatModel: env.CHAT_MODEL || 'gemini-3.5-flash-lite',
   smartModel: env.SMART_MODEL || 'gemini-3.5-flash',
+  blog: { api: (env.GZOWO_BLOG_API || 'https://gzowo-bank.kalakasanyt.workers.dev').replace(/\/$/, ''), key: env.GZOWO_BLOG_KEY || '' },
   timezone: env.TZ_NAME || 'Europe/Warsaw',
   dataDir: env.DATA_DIR || path.join(ROOT, 'data'),
   calApp: path.join(ROOT, 'bin', 'ConciergeCal.app'),

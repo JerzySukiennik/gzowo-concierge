@@ -10,5 +10,5 @@ Personal AI assistant for Jurek. Mac host (Node, LaunchAgent `fun.gzowo.concierg
 ## Hard rules
 - Mac app window stays OPAQUE and uses no `glassEffect` (60-95% GPU idle on Jurek's Intel MBP). Measure GPU with `ioreg -r -d 1 -w0 -c IOAccelerator | grep "Device Utilization"`.
 - Never test against the live host on port 2040 or put the real `HOST_PASSWORD`/owner password anywhere. Use dev hosts on other ports with `RELAY=off DATA_DIR=$(mktemp -d)`.
-- After changing prompts or tools run `node scripts/eval.mjs` (13 scenarios, real model, paced).
+- After changing prompts or tools run `node scripts/eval.mjs` (18 scenarios, real model, paced).
 - UI: Polish copy, no em-dashes, monochrome graphite, red only for errors, flat 2D black and white avatar.

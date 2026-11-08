@@ -8,6 +8,7 @@ const BASE_LABELS = {
   'calendar.read': 'Kalendarz: czytanie', 'calendar.write': 'Kalendarz: dodawanie i zmiany', 'calendar.delete': 'Kalendarz: usuwanie',
   'web.search': 'Wyszukiwanie w sieci', 'school.plan': 'Plan klasy', 'whatsapp.send': 'Wysyłanie na WhatsAppie', 'memory.write': 'Zapamiętywanie', 'skills.write': 'Umiejętności: zapisywanie',
   'timer.set': 'Timery: ustawianie', 'timer.list': 'Timery: sprawdzanie', 'timer.cancel': 'Timery: wyłączanie',
+  'blog.draft': 'Gzowo Times: szkice', 'blog.read': 'Gzowo Times: czytanie', 'blog.publish': 'Gzowo Times: publikowanie', 'blog.delete': 'Gzowo Times: usuwanie',
 };
 
 export const connectorTools = connectors.flatMap(c => c.tools || []);
