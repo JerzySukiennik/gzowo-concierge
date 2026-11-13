@@ -46,6 +46,17 @@ The Mac app draws a black island at the top of the screen (`mac/Sources/Notch*.s
 
 "Ustaw timer na 10 minut" starts a countdown (`host/timers.mjs`, tools `timer_start`, `timer_list`, `timer_cancel`). It shows on the island with a ring and the time left. When it ends the Mac rings and the phone gets a push; a timer set in the room is also announced by the room speaker. The island can add a minute or cancel it.
 
+## Menu bar panel
+
+The Concierge icon in the menu bar shows live CPU, GPU and RAM (right click: turn the numbers off). A click opens the control panel (`mac/Sources/ControlPanel.swift`), which replaces the Vorssaint utility:
+- **Klapa:** closed-lid mode. The Mac keeps working with the lid shut and the screen off, on battery too, until it is switched off (survives restarts). It runs `pmset disablesleep` through a sudoers rule that allows only that command; the existing `/etc/sudoers.d/vorssaint-clamshell` rule is used, and if it is missing the app asks for the admin password once to write its own (`PowerControl.swift`).
+- **Ekran:** turns the display off now. **Klawiatura:** cleaning mode that ignores every key, media key and the Touch Bar until a click or a quiet minute (`KeyboardClean.swift`).
+- **Monitor:** CPU and GPU load with temperatures from the SMC, fans, RAM with memory pressure, free disk space and disk activity, network speed, battery with power draw, cycles and health (`SystemStats.swift`). The hungriest apps are listed with a quit button.
+- **Sound:** master volume plus a slider per app that plays sound. Below 100% the app is captured with a Core Audio process tap and played back quieter; at 100% nothing is tapped (`AppMixer.swift`).
+- **Zatrzymaj wszystko:** open apps, menu bar apps, background services (launchd agents, booted out until next login) and stray background processes such as renders or AI servers, each with a checkbox. Claude starts unchecked; Concierge itself, its host and app extensions are never listed. Anything that starts again at login has a "Wyłącz autostart" button (`ProcessControl.swift`).
+- **Uruchamiane przy starcie:** your LaunchAgents, other apps' agents, system daemons (admin password) and login items, each with a switch; stale login items of deleted apps can be removed (`StartupItems.swift`).
+- **Porządki:** third-party caches, Xcode DerivedData and week-old logs, cleaned weekly after 6:00 or on demand; caches of running apps, Apple, Playwright browsers and Gzowo projects are kept. **Odinstaluj apkę:** the app and its leftovers in `~/Library` go to the Trash. **Aktualizacje apek:** Sparkle appcasts and the App Store (`Housekeeping.swift`).
+
 ## Touch Bar
 
 The Concierge icon in the Control Strip opens a full-width bar: close, the text you type, live voice and "open in island". The reply is one continuous line you can scroll with a finger.

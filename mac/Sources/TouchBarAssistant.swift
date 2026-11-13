@@ -8,6 +8,7 @@ extension NSTouchBarItem.Identifier {
     static let conciergeText = NSTouchBarItem.Identifier("fun.gzowo.concierge.touchbar.text")
     static let conciergeLive = NSTouchBarItem.Identifier("fun.gzowo.concierge.touchbar.live")
     static let conciergeOpen = NSTouchBarItem.Identifier("fun.gzowo.concierge.touchbar.open")
+    static let conciergeLock = NSTouchBarItem.Identifier("fun.gzowo.concierge.touchbar.lock")
 }
 
 private final class CatcherPanel: NSPanel {
@@ -196,6 +197,23 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
 
     @objc private func tapped() { presented ? close() : present() }
 
+    private var lockBar: NSTouchBar?
+
+    func lock(_ on: Bool) {
+        if on {
+            guard lockBar == nil, let sym = class_getClassMethod(NSTouchBar.self, NSSelectorFromString("presentSystemModalTouchBar:placement:systemTrayItemIdentifier:")) else { return }
+            if presented { close() }
+            let b = NSTouchBar()
+            b.delegate = self
+            b.defaultItemIdentifiers = [.conciergeLock]
+            lockBar = b
+            unsafeBitCast(method_getImplementation(sym), to: Present.self)(NSTouchBar.self, NSSelectorFromString("presentSystemModalTouchBar:placement:systemTrayItemIdentifier:"), b, 1, NSTouchBarItem.Identifier.conciergeStrip.rawValue as NSString)
+        } else if let b = lockBar, let m = class_getClassMethod(NSTouchBar.self, NSSelectorFromString("dismissSystemModalTouchBar:")) {
+            unsafeBitCast(method_getImplementation(m), to: Dismiss.self)(NSTouchBar.self, NSSelectorFromString("dismissSystemModalTouchBar:"), b)
+            lockBar = nil
+        }
+    }
+
     private func present() {
         guard !presented, let sym = class_getClassMethod(NSTouchBar.self, NSSelectorFromString("presentSystemModalTouchBar:placement:systemTrayItemIdentifier:")) else { return }
         previousApp = NSWorkspace.shared.frontmostApplication
@@ -292,6 +310,11 @@ final class TouchBarAssistant: NSObject, NSTouchBarDelegate, NSTextFieldDelegate
     func touchBar(_ touchBar: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
         let item = NSCustomTouchBarItem(identifier: identifier)
         switch identifier {
+        case .conciergeLock:
+            let l = NSTextField(labelWithString: "Czyszczenie klawiatury, Touch Bar jest zablokowany")
+            l.font = .systemFont(ofSize: 14, weight: .medium)
+            l.textColor = NSColor.white.withAlphaComponent(0.6)
+            item.view = l
         case .conciergeClose:
             item.view = symbolButton("xmark", "Zamknij", #selector(tapped), width: 56)
         case .conciergeLive:

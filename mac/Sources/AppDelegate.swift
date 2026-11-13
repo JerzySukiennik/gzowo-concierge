@@ -17,6 +17,7 @@ import Combine
     private let levels = SystemLevels()
     private let media = MediaController()
     private var mediaSink: AnyCancellable?
+    private let control = ControlPanelController()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         guard ProcessInfo.processInfo.environment["CONCIERGE_BASE"] == nil, ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] == nil,
@@ -46,6 +47,7 @@ import Combine
         }
         monitor.onChange = { [weak self] state in
             self?.status.update(state)
+            Task { @MainActor in self?.control.hub.hostLine = !state.online ? "Host nie odpowiada" : (state.pending > 0 ? "Czeka na Twoją zgodę" : (state.busy ? "Pracuję…" : "Gotowy")); self?.control.hub.avatar = state.avatarShape }
             Task { @MainActor in self?.model.apply(state); self?.notch.model.apply(state); self?.briefNotifier.check(ts: state.briefTs, text: state.briefText, thread: state.briefThread) }
         }
         notch.model.activeThread = { [weak self] in self?.model.activeID ?? "main" }
@@ -86,13 +88,67 @@ import Combine
         }
         macLink.start()
         NotificationCenter.default.addObserver(forName: .conciergePolicyChanged, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.touchBarAssistant.policyChanged() } }
-        status.setVisible(!notch.enabled)
+        status.setVisible(true)
+        startControlPanel()
         model.requestPoll = { [weak self] in self?.monitor.pollNow() }
         model.onNewThread = { [weak self] in self?.notch.model.agentHistory = []; self?.screenAgent.newSession() }
         model.requestRename = { [weak self] t in self?.promptRename(t) }
         monitor.start()
         LoginAgent.sync()
         if !(LoginAgent.launchedAsIsland && notch.enabled) { windowController.show() }
+    }
+
+    private func startControlPanel() {
+        status.showStats = control.menuStatsEnabled
+        status.onClick = { [weak self] button in self?.control.toggle(from: button) }
+        status.onStatsToggle = { [weak self] on in self?.control.menuStatsEnabled = on; if !on { self?.status.setStats(nil) } }
+        control.onStats = { [weak self] s in guard let self, self.status.showStats else { return }; self.status.setStats(s) }
+        control.hub.openApp = { [weak self] in self?.windowController.show() }
+        control.hub.openSettings = { [weak self] in self?.openSettings() }
+        control.hub.keyboard.lockTouchBar = { [weak self] on in self?.touchBarAssistant.lock(on) }
+        control.start()
+        if ProcessInfo.processInfo.environment["CONCIERGE_TB_TEST"] != nil {
+            DistributedNotificationCenter.default().addObserver(forName: Notification.Name("fun.gzowo.concierge.panel-test"), object: nil, queue: .main) { [weak self] n in
+                let cmd = (n.object as? String) ?? ""
+                Task { @MainActor in self?.panelTest(cmd) }
+            }
+        }
+    }
+
+    private func panelTest(_ cmd: String) {
+        switch cmd {
+        case "open": if let b = status.button { control.show(from: b) }
+        case "close": control.hide()
+        case "stop": control.hub.go(.stop)
+        case "startup": control.hub.go(.startup)
+        case "clean": control.hub.go(.clean)
+        case "uninstall": control.hub.go(.uninstall)
+        case "updates": control.hub.go(.updates)
+        case "main": control.hub.go(.main)
+        case let c where c.hasPrefix("vol:"):
+            let parts = c.split(separator: ":")
+            if parts.count == 3, let app = control.hub.mixer.apps.first(where: { $0.name == String(parts[1]) }), let v = Float(parts[2]) { control.hub.mixer.setVolume(app, v) }
+            print("mixer:", control.hub.mixer.debugLine()); fflush(stdout)
+        case "mixer":
+            control.hub.mixer.refresh()
+            print("mixer:", control.hub.mixer.debugLine()); fflush(stdout)
+        case let c where c.hasPrefix("leftovers:"):
+            let name = String(c.dropFirst(10))
+            if let app = Housekeeping.installedApps().first(where: { $0.name == name }) { print("leftovers \(name):", Housekeeping.leftovers(for: app).map { "\($0.path) \($0.size)" }); fflush(stdout) }
+        case "kbclean": control.hub.keyboard.start()
+        case "kbstop":
+            print("keyboard presses:", control.hub.keyboard.presses, "tap:", control.hub.keyboard.tapState); fflush(stdout)
+            control.hub.keyboard.stop()
+        case "procs":
+            control.hub.procs.scan()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { print("stop targets:", self.control.hub.procs.targets.map { "\($0.kind) \($0.name) \($0.checked)" }); fflush(stdout) }
+        default: break
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        control.hub.mixer.stopAll()
+        control.hub.keyboard.stop()
     }
 
     private func startLiveActivities() {
@@ -152,7 +208,6 @@ import Combine
     @objc private func toggleNotch(_ sender: NSMenuItem) {
         notch.enabled.toggle()
         sender.state = notch.enabled ? .on : .off
-        status.setVisible(!notch.enabled)
         if notch.enabled == false { NSApp.setActivationPolicy(.regular) }
     }
 
