@@ -22,6 +22,7 @@ final class ControlHub: ObservableObject {
     @Published var page: PanelPage = .main
     @Published var forward = true
     @Published var open = false
+    @Published var anchorX: CGFloat = 0.5
     @Published var appIcon: NSImage?
     @Published var hostLine = "Gotowy"
     @Published var avatar = "circle"
@@ -38,7 +39,7 @@ final class ControlHub: ObservableObject {
 
     func go(_ p: PanelPage) {
         forward = p != .main
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) { page = p }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { page = p }
         switch p {
         case .stop: procs.scan(); startup.scan()
         case .startup: startup.scan()
@@ -93,21 +94,30 @@ final class ControlPanelController {
         if hub.house.caches.isEmpty { hub.house.scanCaches() }
         hub.house.checkUpdates()
         place(p)
-        p.alphaValue = 0
+        hiding = false
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { hub.open = false }
+        p.alphaValue = 1
         p.orderFrontRegardless()
         p.makeKey()
-        hub.open = false
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { hub.open = true }
-        NSAnimationContext.runAnimationGroup { $0.duration = 0.16; p.animator().alphaValue = 1 }
+        DispatchQueue.main.async { [weak self] in
+            withAnimation(.spring(response: 0.44, dampingFraction: 0.74)) { self?.hub.open = true }
+        }
         installMonitors()
     }
+
+    private var hiding = false
 
     func hide() {
         guard let p = panel, p.isVisible else { return }
         monitors.forEach { NSEvent.removeMonitor($0) }
         monitors = []
-        withAnimation(.easeIn(duration: 0.12)) { hub.open = false }
-        NSAnimationContext.runAnimationGroup({ $0.duration = 0.14; p.animator().alphaValue = 0 }, completionHandler: { p.orderOut(nil) })
+        hiding = true
+        withAnimation(.spring(response: 0.26, dampingFraction: 1)) { hub.open = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { [weak self] in
+            guard let self, self.hiding else { return }
+            p.orderOut(nil)
+        }
         hub.mixer.setPanelOpen(false)
         idle()
     }
@@ -148,6 +158,8 @@ final class ControlPanelController {
         var x = r.midX - w / 2
         x = min(max(vf.minX + 4, x), vf.maxX - w - 4)
         p.setFrame(NSRect(x: x, y: vf.maxY - h + 6, width: w, height: h), display: true)
+        let ax = max(0.05, min(0.95, (r.midX - x - 12) / width))
+        if abs(hub.anchorX - ax) > 0.001 { hub.anchorX = ax }
     }
 
     private func installMonitors() {
@@ -174,6 +186,7 @@ struct ControlPanelView: View {
     var maxHeight: CGFloat
     var onHeight: (CGFloat) -> Void
     @State private var mainHeight: CGFloat = 640
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -191,17 +204,18 @@ struct ControlPanelView: View {
                             }
                     }
                     .scrollDisabled(mainHeight <= maxHeight - 24)
-                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                    .transition(.page(edge: .leading))
                 } else {
                     SubPage(hub: hub)
-                        .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .trailing).combined(with: .opacity)))
+                        .transition(.page(edge: .trailing))
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .frame(width: width, height: min(mainHeight, maxHeight - 24))
-        .scaleEffect(hub.open ? 1 : 0.96, anchor: .top)
-        .offset(y: hub.open ? 0 : -6)
+        .scaleEffect(x: hub.open ? 1 : (reduceMotion ? 1 : 0.9), y: hub.open ? 1 : (reduceMotion ? 1 : 0.72), anchor: UnitPoint(x: hub.anchorX, y: 0))
+        .offset(y: hub.open ? 0 : (reduceMotion ? 0 : -8))
+        .opacity(hub.open ? 1 : 0)
         .padding(12)
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -213,23 +227,24 @@ private struct MainPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
-            tiles
-            MonitorGrid(hub: hub, stats: hub.stats)
-            MemoryList(hub: hub, stats: hub.stats)
-            MixerList(mixer: hub.mixer)
+            header.rise(hub.open, 0)
+            tiles.rise(hub.open, 1)
+            MonitorGrid(hub: hub, stats: hub.stats).rise(hub.open, 2)
+            MemoryList(hub: hub, stats: hub.stats).rise(hub.open, 3)
+            MixerList(mixer: hub.mixer).rise(hub.open, 4)
             VStack(spacing: 0) {
-                NavRow(icon: "stop.circle", title: "Zatrzymaj wszystko", value: "") { hub.go(.stop) }
+                NavRow(icon: "stop.circle", effect: .bounce, title: "Zatrzymaj wszystko", value: "") { hub.go(.stop) }
                 Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 44)
-                NavRow(icon: "power", title: "Uruchamiane przy starcie", value: hub.startup.items.isEmpty ? "" : "\(hub.startup.activeCount)") { hub.go(.startup) }
+                NavRow(icon: "power", effect: .breathe, title: "Uruchamiane przy starcie", value: hub.startup.items.isEmpty ? "" : "\(hub.startup.activeCount)") { hub.go(.startup) }
                 Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 44)
-                NavRow(icon: "sparkles", title: "Porządki", value: hub.house.scanning && hub.house.caches.isEmpty ? "…" : Fmt.bytes(Double(hub.house.cacheTotal))) { hub.go(.clean) }
+                NavRow(icon: "sparkles", effect: .layers, title: "Porządki", value: hub.house.scanning && hub.house.caches.isEmpty ? "…" : Fmt.bytes(Double(hub.house.cacheTotal))) { hub.go(.clean) }
                 Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 44)
-                NavRow(icon: "trash", title: "Odinstaluj apkę", value: "") { hub.go(.uninstall) }
+                NavRow(icon: "trash", effect: .wiggle, title: "Odinstaluj apkę", value: "") { hub.go(.uninstall) }
                 Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 44)
-                NavRow(icon: "arrow.down.circle", title: "Aktualizacje apek", value: hub.house.checkingUpdates ? "…" : (hub.house.updates.isEmpty ? "brak" : "\(hub.house.updates.count)"), accent: !hub.house.updates.isEmpty) { hub.go(.updates) }
+                NavRow(icon: "arrow.down.circle", effect: .down, title: "Aktualizacje apek", value: hub.house.checkingUpdates ? "…" : (hub.house.updates.isEmpty ? "brak" : "\(hub.house.updates.count)"), accent: !hub.house.updates.isEmpty) { hub.go(.updates) }
             }
             .background(card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .rise(hub.open, 5)
         }
         .padding(14)
     }
@@ -242,89 +257,179 @@ private struct MainPage: View {
                 Text(hub.hostLine).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.55))
             }
             Spacer()
-            CircleButton(symbol: "macwindow", help: "Otwórz Concierge") { hub.close(); hub.openApp() }
-            CircleButton(symbol: "gearshape", help: "Ustawienia") { hub.close(); hub.openSettings() }
+            CircleButton(symbol: "macwindow", effect: .up, help: "Otwórz Concierge") { hub.close(); hub.openApp() }
+            CircleButton(symbol: "gearshape", effect: .rotate, help: "Ustawienia") { hub.close(); hub.openSettings() }
         }
     }
 
     private var tiles: some View {
         HStack(spacing: 8) {
-            Tile(icon: "laptopcomputer", title: "Klapa", subtitle: hub.power.working ? "Przełączam…" : (hub.power.lidMode ? "Działa po zamknięciu" : "Usypia po zamknięciu"), on: hub.power.lidMode) { hub.power.toggleLid() }
-            Tile(icon: "display", title: "Ekran", subtitle: "Wyłącz teraz", on: false) { hub.close(); hub.power.screenOff() }
-            Tile(icon: "keyboard", title: "Klawiatura", subtitle: "Czyszczenie", on: hub.keyboard.active) { hub.close(); hub.keyboard.start() }
+            Tile(title: "Klapa", subtitle: hub.power.working ? "Przełączam…" : (hub.power.lidMode ? "Działa po zamknięciu" : "Usypia po zamknięciu"), on: hub.power.lidMode, delay: 0) { hub.power.toggleLid() } icon: { hover, _, color in
+                LaptopIcon(closed: hub.power.lidMode, hover: hover, color: color)
+            }
+            Tile(title: "Ekran", subtitle: "Wyłącz teraz", on: false, delay: 0.42) { hub.close(); hub.power.screenOff() } icon: { hover, pressed, color in
+                DisplayIcon(hover: hover, trigger: pressed, color: color)
+            }
+            Tile(title: "Klawiatura", subtitle: "Czyszczenie", on: hub.keyboard.active, delay: 0.3) { hub.close(); hub.keyboard.start() } icon: { hover, _, color in
+                KeyboardIcon(hover: hover, color: color)
+            }
         }
         .overlay(alignment: .bottom) {
-            if !hub.power.problem.isEmpty { Text(hub.power.problem).font(.system(size: 11)).foregroundStyle(errorRed).offset(y: 18) }
+            if !hub.power.problem.isEmpty { Text(hub.power.problem).font(.system(size: 11)).foregroundStyle(errorRed).offset(y: 18).transition(.opacity.combined(with: .offset(y: -4))) }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: hub.power.problem)
+    }
+}
+
+private struct Tile<Icon: View>: View {
+    var title: String
+    var subtitle: String
+    var on: Bool
+    var delay: Double
+    var action: () -> Void
+    @ViewBuilder var icon: (Bool, Int, Color) -> Icon
+    @State private var hover = false
+    @State private var pressed = 0
+
+    var body: some View {
+        Button {
+            pressed += 1
+            if delay > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: action) } else { action() }
+        } label: {
+            VStack(spacing: 4) {
+                icon(hover, pressed, on ? Color.black : ink)
+                Text(title).font(.system(size: 12.5, weight: .semibold))
+                Text(subtitle).font(.system(size: 10)).opacity(0.62).lineLimit(1).minimumScaleFactor(0.85)
+                    .contentTransition(.interpolate)
+            }
+            .foregroundStyle(on ? Color.black : ink)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 10).padding(.bottom, 11)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(hover ? cardHi : card)
+                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white)
+                    .scaleEffect(on ? 1 : 0.6)
+                    .opacity(on ? 1 : 0)
+            }
+            .animation(.spring(response: 0.42, dampingFraction: 0.68), value: on)
+            .animation(.easeOut(duration: 0.15), value: hover)
+            .animation(.easeInOut(duration: 0.25), value: subtitle)
+        }
+        .buttonStyle(PressStyle(scale: 0.94))
+        .onHover { hover = $0 }
+    }
+}
+
+enum IconEffect { case bounce, breathe, layers, wiggle, down, up, rotate }
+
+private struct HoverSymbol: View {
+    var name: String
+    var effect: IconEffect
+    var size: CGFloat
+    var weight: Font.Weight
+    var hits: Int
+
+    var body: some View {
+        let img = Image(systemName: name).font(.system(size: size, weight: weight))
+        switch effect {
+        case .bounce: img.symbolEffect(.bounce, options: .nonRepeating, value: hits)
+        case .breathe: img.symbolEffect(.breathe.pulse.byLayer, options: .nonRepeating, value: hits)
+        case .layers: img.symbolEffect(.bounce.byLayer, options: .nonRepeating, value: hits)
+        case .wiggle: img.symbolEffect(.wiggle, options: .nonRepeating, value: hits)
+        case .down: img.symbolEffect(.bounce.down, options: .nonRepeating, value: hits)
+        case .up: img.symbolEffect(.bounce.up, options: .nonRepeating, value: hits)
+        case .rotate: img.symbolEffect(.rotate, options: .nonRepeating, value: hits)
         }
     }
 }
 
-private struct Tile: View {
-    var icon: String
-    var title: String
-    var subtitle: String
+private struct RiseIn: ViewModifier {
     var on: Bool
-    var action: () -> Void
-    @State private var hover = false
+    var index: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 19, weight: .regular)).frame(height: 24)
-                    .contentTransition(.symbolEffect(.replace))
-                Text(title).font(.system(size: 12.5, weight: .semibold))
-                Text(subtitle).font(.system(size: 10)).opacity(0.62).lineLimit(1).minimumScaleFactor(0.85)
-            }
-            .foregroundStyle(on ? Color.black : ink)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(on ? Color.white : (hover ? cardHi : card), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .animation(.spring(response: 0.3, dampingFraction: 0.75), value: on)
-        }
-        .buttonStyle(PressStyle(scale: 0.95))
-        .onHover { hover = $0 }
+    func body(content: Content) -> some View {
+        content
+            .opacity(on ? 1 : 0)
+            .offset(y: on || reduceMotion ? 0 : 12)
+            .scaleEffect(on || reduceMotion ? 1 : 0.97, anchor: .top)
+            .blur(radius: on || reduceMotion ? 0 : 3)
+            .animation(on ? .spring(response: 0.5, dampingFraction: 0.8).delay(0.05 + Double(index) * 0.04) : .easeOut(duration: 0.12), value: on)
+    }
+}
+
+extension View {
+    fileprivate func rise(_ on: Bool, _ index: Int) -> some View { modifier(RiseIn(on: on, index: index)) }
+}
+
+private struct PageSlide: ViewModifier {
+    var x: CGFloat
+    var scale: CGFloat
+    var opacity: Double
+    var blur: CGFloat
+    func body(content: Content) -> some View {
+        content.offset(x: x).scaleEffect(scale).opacity(opacity).blur(radius: blur)
+    }
+}
+
+extension AnyTransition {
+    fileprivate static func page(edge: Edge) -> AnyTransition {
+        let x: CGFloat = edge == .leading ? -90 : 140
+        return .modifier(active: PageSlide(x: x, scale: edge == .leading ? 0.96 : 1, opacity: 0, blur: 5), identity: PageSlide(x: 0, scale: 1, opacity: 1, blur: 0))
     }
 }
 
 private struct CircleButton: View {
     var symbol: String
+    var effect: IconEffect
     var help: String
     var action: () -> Void
+    @State private var hits = 0
+    @State private var hover = false
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12.5, weight: .medium)).foregroundStyle(ink)
-                .frame(width: 30, height: 30).background(card, in: Circle())
+            HoverSymbol(name: symbol, effect: effect, size: 12.5, weight: .medium, hits: hits).foregroundStyle(ink)
+                .frame(width: 30, height: 30).background(hover ? cardHi : card, in: Circle())
+                .animation(.easeOut(duration: 0.15), value: hover)
         }
         .buttonStyle(PressStyle()).help(help).accessibilityLabel(help)
+        .onHover { h in hover = h; if h { hits += 1 } }
     }
 }
 
 private struct NavRow: View {
     var icon: String
+    var effect: IconEffect
     var title: String
     var value: String
     var accent = false
     var action: () -> Void
     @State private var hover = false
+    @State private var hits = 0
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: icon).font(.system(size: 13.5, weight: .medium)).frame(width: 20)
+                HoverSymbol(name: icon, effect: effect, size: 13.5, weight: .medium, hits: hits).frame(width: 20)
                 Text(title).font(.system(size: 13))
                 Spacer()
                 if !value.isEmpty {
                     Text(value).font(.system(size: 12, weight: accent ? .semibold : .regular).monospacedDigit()).foregroundStyle(accent ? amber : .white.opacity(0.5))
+                        .contentTransition(.numericText())
+                        .animation(.snappy, value: value)
                 }
-                Image(systemName: "chevron.right").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
+                Image(systemName: "chevron.right").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white.opacity(hover ? 0.7 : 0.35))
+                    .offset(x: hover ? 3 : 0)
             }
             .foregroundStyle(ink)
             .padding(.horizontal, 14).frame(height: 40)
-            .background(hover ? Color.white.opacity(0.05) : .clear)
+            .background(Color.white.opacity(hover ? 0.05 : 0))
             .contentShape(Rectangle())
+            .animation(.spring(response: 0.28, dampingFraction: 0.7), value: hover)
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
+        .onHover { h in hover = h; if h { hits += 1 } }
     }
 }
 
@@ -365,7 +470,7 @@ private struct Metric: View {
             Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white.opacity(0.55))
             if lines.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(value).font(.system(size: 17, weight: .semibold).monospacedDigit()).foregroundStyle(ink).contentTransition(.numericText())
+                    Text(value).font(.system(size: 17, weight: .semibold).monospacedDigit()).foregroundStyle(ink)
                     if !extra.isEmpty { Text(extra).font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(.white.opacity(0.6)) }
                 }
                 .lineLimit(1).minimumScaleFactor(0.7)
@@ -461,8 +566,9 @@ private struct MemoryList: View {
         if !top.isEmpty {
             VStack(alignment: .leading, spacing: 7) {
                 SectionTitle("Pamięć")
-                ForEach(top) { app in MemoryRow(hub: hub, app: app, icon: stats.icon(for: app), top: Double(top.first?.bytes ?? 1)) }
+                ForEach(top) { app in MemoryRow(hub: hub, app: app, icon: stats.icon(for: app), top: Double(top.first?.bytes ?? 1)).transition(.opacity.combined(with: .offset(y: -6))) }
             }
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: top.map(\.id))
         }
     }
 }
@@ -542,6 +648,8 @@ private struct VolumeSlider: View {
                 Capsule().fill(Color.white.opacity(0.12)).frame(height: 5)
                 Capsule().fill(Color.white).frame(width: max(5, g.size.width * v), height: 5)
                 Circle().fill(Color.white).frame(width: 14, height: 14).shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                    .scaleEffect(drag == nil ? 1 : 1.28)
+                    .animation(.spring(response: 0.25, dampingFraction: 0.6), value: drag == nil)
                     .offset(x: max(0, min(g.size.width - 14, g.size.width * v - 7)))
             }
             .frame(maxHeight: .infinity)
