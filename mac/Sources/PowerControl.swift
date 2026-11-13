@@ -61,7 +61,7 @@ final class PowerControl: ObservableObject {
             IOPMAssertionCreateWithName(kIOPMAssertionTypePreventSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Concierge: nie usypiaj" as CFString, &systemHold)
         }
         if displayHold == 0, !screenForcedOff {
-            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Concierge: nie gaś ekranu" as CFString, &displayHold)
+            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Concierge: ekran nie gasnie" as CFString, &displayHold)
         }
     }
 
