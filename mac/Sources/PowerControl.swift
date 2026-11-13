@@ -1,4 +1,4 @@
-// Gzowo Concierge for macOS - closed-lid mode (the Mac keeps working with the lid shut and the screen off, until switched off) and turning the screen off on demand.
+// Gzowo Concierge for macOS - stay-awake mode (the Mac never sleeps and the open screen never dims, with the lid shut it keeps working with the screen off, until switched off) and turning the screen off on demand.
 import AppKit
 import IOKit.pwr_mgt
 
@@ -7,12 +7,24 @@ final class PowerControl: ObservableObject {
     @Published private(set) var lidMode = false
     @Published private(set) var working = false
     @Published private(set) var problem = ""
-    private var assertion: IOPMAssertionID = 0
+    private var systemHold: IOPMAssertionID = 0
+    private var displayHold: IOPMAssertionID = 0
+    private var screenForcedOff = false
     private let ruleFile = "/etc/sudoers.d/gzowo-concierge-clamshell"
 
-    init() { refresh() }
+    init() {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.screenForcedOff = false
+                if self.lidMode { self.hold() }
+            }
+        }
+        refresh()
+    }
 
     func refresh() {
+        screenForcedOff = false
         let disabled = Self.sleepDisabled()
         if disabled != lidMode { lidMode = disabled }
         disabled ? hold() : release()
@@ -33,24 +45,35 @@ final class PowerControl: ObservableObject {
                 self.working = false
                 self.lidMode = now
                 now ? self.hold() : self.release()
-                if !success { self.problem = "Nie udało się przełączyć trybu klapy." }
+                if !success { self.problem = "Nie udało się przełączyć trybu." }
             }
         }
     }
 
     func screenOff() {
+        screenForcedOff = true
+        drop(&displayHold)
         Task.detached { _ = Self.run("/usr/bin/pmset", ["displaysleepnow"]) }
     }
 
     private func hold() {
-        guard assertion == 0 else { return }
-        IOPMAssertionCreateWithName(kIOPMAssertionTypePreventSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Concierge: tryb klapy" as CFString, &assertion)
+        if systemHold == 0 {
+            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Concierge: nie usypiaj" as CFString, &systemHold)
+        }
+        if displayHold == 0, !screenForcedOff {
+            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Concierge: nie gaś ekranu" as CFString, &displayHold)
+        }
     }
 
     private func release() {
-        guard assertion != 0 else { return }
-        IOPMAssertionRelease(assertion)
-        assertion = 0
+        drop(&systemHold)
+        drop(&displayHold)
+    }
+
+    private func drop(_ id: inout IOPMAssertionID) {
+        guard id != 0 else { return }
+        IOPMAssertionRelease(id)
+        id = 0
     }
 
     nonisolated static func sleepDisabled() -> Bool {
@@ -83,7 +106,7 @@ final class PowerControl: ObservableObject {
         guard user.range(of: "^[a-z_][a-z0-9_-]*$", options: .regularExpression) != nil else { return false }
         let rule = "\(user) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0"
         let shell = "printf '%s\\n' '\(rule)' > /tmp/gzowo-clamshell && /usr/sbin/visudo -cf /tmp/gzowo-clamshell && /usr/bin/install -m 0440 -o root -g wheel /tmp/gzowo-clamshell \(path); rm -f /tmp/gzowo-clamshell"
-        let script = "do shell script \"\(shell.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\" with administrator privileges with prompt \"Concierge zapisze regułę, która pozwala tylko włączać i wyłączać tryb klapy bez hasła. Hasło jest potrzebne tylko ten jeden raz.\""
+        let script = "do shell script \"\(shell.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\" with administrator privileges with prompt \"Concierge zapisze regułę, która pozwala tylko włączać i wyłączać tryb nieusypiania bez hasła. Hasło jest potrzebne tylko ten jeden raz.\""
         return run("/usr/bin/osascript", ["-e", script]) == 0
     }
 }

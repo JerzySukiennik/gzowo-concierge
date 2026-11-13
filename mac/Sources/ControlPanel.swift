@@ -264,7 +264,7 @@ private struct MainPage: View {
 
     private var tiles: some View {
         HStack(spacing: 8) {
-            Tile(title: "Klapa", subtitle: hub.power.working ? "Przełączam…" : (hub.power.lidMode ? "Działa po zamknięciu" : "Usypia po zamknięciu"), on: hub.power.lidMode, delay: 0) { hub.power.toggleLid() } icon: { hover, _, color in
+            Tile(title: "Klapa", subtitle: hub.power.working ? "Przełączam…" : (hub.power.lidMode ? "Nie usypia wcale" : "Usypia normalnie"), on: hub.power.lidMode, delay: 0) { hub.power.toggleLid() } icon: { hover, _, color in
                 LaptopIcon(closed: hub.power.lidMode, hover: hover, color: color)
             }
             Tile(title: "Ekran", subtitle: "Wyłącz teraz", on: false, delay: 0.42) { hub.close(); hub.power.screenOff() } icon: { hover, pressed, color in
