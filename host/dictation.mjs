@@ -122,38 +122,64 @@ const RAW_RULES = [
   'If the audio contains no speech, return an empty response.',
 ].join('\n');
 
-async function geminiAudio({ wav, system, model }) {
+let nextKey = 0;
+
+function dictKeys() {
+  const keys = config.apiKeys.length ? config.apiKeys : [config.apiKey].filter(Boolean);
+  const start = nextKey++ % Math.max(1, keys.length);
+  return [...keys.slice(start), ...keys.slice(0, start)];
+}
+
+const slow = e => e?.name === 'TimeoutError' || e?.name === 'AbortError';
+
+function within(promise, ms, message) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error(message), { name: 'TimeoutError' })), ms); })])
+    .finally(() => clearTimeout(timer));
+}
+
+async function geminiAudio({ wav, system, model, key, signal }) {
   const contents = [{ role: 'user', parts: [{ text: 'Dictation:' }, { inlineData: { mimeType: 'audio/wav', data: wav.toString('base64') } }] }];
-  const res = await generate({ model, system, contents, thinking: 'minimal', temperature: 0.2 });
+  const res = await generate({ model, system, contents, thinking: 'minimal', temperature: 0.2, key, signal });
   return textOf(res.candidates?.[0]?.content?.parts).trim();
 }
 
-async function audioToText(wav, system) {
-  try { return await geminiAudio({ wav, system, model: config.smartModel }); }
-  catch (e) {
-    if (![429, 500, 503].includes(e.status)) throw e;
-    return geminiAudio({ wav, system, model: config.chatModel });
+async function audioToText(wav, system, deadline) {
+  const keys = dictKeys();
+  const tries = [[config.smartModel, keys[0]], [config.chatModel, keys[1 % Math.max(1, keys.length)]]];
+  let lastErr;
+  for (const [model, key] of tries) {
+    const left = deadline - Date.now();
+    if (left < 1500) break;
+    try { return await geminiAudio({ wav, system, model, key, signal: AbortSignal.timeout(Math.min(left, 10000)) }); }
+    catch (e) {
+      lastErr = e;
+      if (!slow(e) && e.status && ![429, 500, 503].includes(e.status)) throw e;
+    }
   }
+  throw slow(lastErr) || !lastErr ? new Error('Gemini nie odpowiada, spróbuj jeszcze raz.') : lastErr;
 }
 
 const tidy = t => t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 const stripFence = t => t.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '').trim();
 
-export async function dictate(wav) {
+export async function dictate(wav, { deadline = Date.now() + 30000 } = {}) {
   if (!wav || wav.length < 2000) throw new Error('Nagranie jest za krótkie.');
   const dict = getDictionary();
   const t0 = Date.now();
   const { cleaner } = getDictation();
   let text;
   if (cleaner === 'haiku') {
-    const raw = await audioToText(wav, RAW_RULES + dictionaryBlock(dict));
+    const raw = await audioToText(wav, RAW_RULES + dictionaryBlock(dict), deadline);
     if (!raw) return { text: '', ms: Date.now() - t0, cleaner };
-    text = await claudeText({
-      system: `${RULES.replace('The audio is one person dictating', 'The input is a raw transcript of one person dictating')}${dictionaryBlock(dict)}`,
-      prompt: `Transcript:\n${raw}`,
-    });
+    try {
+      text = await within(claudeText({
+        system: `${RULES.replace('The audio is one person dictating', 'The input is a raw transcript of one person dictating')}${dictionaryBlock(dict)}`,
+        prompt: `Transcript:\n${raw}`,
+      }), Math.max(1000, deadline - Date.now()), 'Claude nie odpowiedział na czas.');
+    } catch { text = raw; }
   } else {
-    text = await audioToText(wav, RULES + dictionaryBlock(dict));
+    text = await audioToText(wav, RULES + dictionaryBlock(dict), deadline);
   }
   text = tidy(applyAliases(stripFence(text || ''), dict));
   return { text, ms: Date.now() - t0, cleaner };
@@ -161,13 +187,13 @@ export async function dictate(wav) {
 
 const TEXT_RULES = RULES.replace('The audio is one person dictating text', 'The input is a raw speech-to-text transcript of one person dictating text (it may misspell names and brands; fix them using the list below and the context)');
 
-export async function cleanText(raw) {
+export async function cleanText(raw, ms = 6000) {
   const dict = getDictionary();
   const system = TEXT_RULES + dictionaryBlock(dict);
   let out;
-  if (getDictation().cleaner === 'haiku') out = await claudeText({ system, prompt: `Transcript:\n${raw}` });
+  if (getDictation().cleaner === 'haiku') out = await within(claudeText({ system, prompt: `Transcript:\n${raw}` }), ms, 'Claude nie odpowiedział na czas.');
   else {
-    const res = await generate({ model: config.chatModel, system, contents: [{ role: 'user', parts: [{ text: `Transcript:\n${raw}` }] }], thinking: 'minimal', temperature: 0.2 });
+    const res = await generate({ model: config.chatModel, system, contents: [{ role: 'user', parts: [{ text: `Transcript:\n${raw}` }] }], thinking: 'minimal', temperature: 0.2, key: dictKeys()[0], signal: AbortSignal.timeout(ms) });
     out = textOf(res.candidates?.[0]?.content?.parts).trim();
   }
   return tidy(applyAliases(stripFence(out || ''), dict));
@@ -183,16 +209,24 @@ function pcmToWav(pcm) {
 const LIVE_MODEL = process.env.LIVE_MODEL || 'models/gemini-3.8-live';
 const LIVE_URL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${process.env.LIVE_API || 'v1beta'}.GenerativeService.BidiGenerateContent`;
 
+const SETUP_MS = 4000;
+const SILENT_MS = 4000;
+const CLEAN_MS = 6000;
+const DEADLINE_MS = 21000;
+const LIVE_TRIES = 3;
+
 export function handleDictateUpgrade(req, socket) {
   const chunks = [];
-  let upstream = null, ready = false, ended = false, done = false, raw = '', lastT = 0, bytes = 0;
-  const pending = [];
-  let quiet = null, hard = null;
+  const keys = dictKeys();
+  const trail = [];
+  let upstream = null, ready = false, ended = false, done = false, busy = false, liveDown = false;
+  let raw = '', bytes = 0, attempt = 0, endedAt = 0;
+  let tSetup = null, tQuiet = null, tSilent = null, tDeadline = null;
 
   const conn = acceptUpgrade(req, socket, {
     maxFrame: 1 << 20,
     onMessage: (data, binary) => {
-      if (binary) { const b = Buffer.from(data); chunks.push(b); bytes += b.length; push(b); return; }
+      if (binary) { const b = Buffer.from(data); chunks.push(b); bytes += b.length; if (ready) up(audioMsg(b)); return; }
       let m; try { m = JSON.parse(data); } catch { return; }
       if (m.type === 'end') end();
       else if (m.type === 'cancel') finish(null, true);
@@ -204,70 +238,113 @@ export function handleDictateUpgrade(req, socket) {
 
   const up = o => { if (upstream?.readyState === 1) upstream.send(JSON.stringify(o)); };
   const audioMsg = b => ({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: b.toString('base64') } } });
-  function push(b) { if (ready) up(audioMsg(b)); else if (pending.length < 400) pending.push(b); }
+  const keyNo = () => `key ${(attempt % Math.max(1, keys.length)) + 1}/${keys.length}`;
+
+  function drop() {
+    clearTimeout(tSetup);
+    const ws = upstream;
+    upstream = null;
+    ready = false;
+    try { ws?.close(1000); } catch {}
+  }
 
   function connect() {
-    if (!config.apiKey) { fallback(); return; }
-    upstream = new WebSocket(`${LIVE_URL}?key=${encodeURIComponent(config.apiKey)}`);
-    upstream.addEventListener('open', () => upstream.send(JSON.stringify({ setup: {
+    if (!keys.length) { liveDown = true; trail.push('no Gemini key'); return; }
+    const ws = new WebSocket(`${LIVE_URL}?key=${encodeURIComponent(keys[attempt % keys.length])}`);
+    upstream = ws;
+    tSetup = setTimeout(() => dead(ws, 'no setup in 4s'), SETUP_MS);
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ setup: {
       model: LIVE_MODEL,
       generationConfig: { responseModalities: ['AUDIO'] },
       systemInstruction: { parts: [{ text: 'You are a silent transcription device. Never speak and never answer. Produce no output.' }] },
       inputAudioTranscription: { languageCodes: ['pl-PL'] },
       realtimeInputConfig: { automaticActivityDetection: { disabled: true } },
     } })));
-    upstream.addEventListener('message', async ev => {
+    ws.addEventListener('message', async ev => {
+      if (upstream !== ws) return;
       let m; try { m = JSON.parse(ev.data instanceof Blob ? await ev.data.text() : String(ev.data)); } catch { return; }
+      if (upstream !== ws) return;
       if (m.setupComplete) {
-        ready = true; up({ realtimeInput: { activityStart: {} } });
-        for (const b of pending.splice(0)) up(audioMsg(b));
+        clearTimeout(tSetup);
+        ready = true;
+        up({ realtimeInput: { activityStart: {} } });
+        for (const b of chunks) up(audioMsg(b));
         if (ended) up({ realtimeInput: { activityEnd: {} } });
         return;
       }
       const t = m.serverContent?.inputTranscription?.text;
-      if (t) { raw += t; lastT = Date.now(); if (ended) armQuiet(); }
+      if (t) { raw += t; if (ended) armQuiet(); }
       if (m.serverContent?.generationComplete || m.serverContent?.turnComplete) { if (ended && raw) complete(); }
     });
-    upstream.addEventListener('error', () => { if (!done) fallback(); });
-    upstream.addEventListener('close', () => { if (!done && ended && !raw) fallback(); });
+    ws.addEventListener('error', () => dead(ws, 'socket error'));
+    ws.addEventListener('close', ev => dead(ws, `closed ${ev.code}${ev.reason ? ' ' + String(ev.reason).slice(0, 90) : ''}`));
   }
 
-  function armQuiet() { clearTimeout(quiet); quiet = setTimeout(complete, 400); }
+  function dead(ws, why) {
+    if (upstream !== ws || done || busy) return;
+    trail.push(`live ${keyNo()} ${ready ? 'dropped' : 'refused'}: ${why}`);
+    drop();
+    if (ended) { if (raw) complete(); else fallback(); return; }
+    raw = '';
+    if (++attempt < LIVE_TRIES) connect();
+    else liveDown = true;
+  }
+
+  function armQuiet() { clearTimeout(tQuiet); tQuiet = setTimeout(complete, 400); }
 
   function end() {
     if (ended) return;
     ended = true;
+    endedAt = Date.now();
     if (bytes < 9600) { finish({ text: '' }); return; }
+    tDeadline = setTimeout(() => {
+      trail.push('deadline');
+      const text = raw.trim();
+      finish(text ? { text: applyAliases(text), raw: text, engine: 'live' } : { error: 'Gemini nie odpowiada, spróbuj jeszcze raz.' });
+    }, DEADLINE_MS);
+    if (liveDown || !upstream) { fallback(); return; }
     if (ready) up({ realtimeInput: { activityEnd: {} } });
-    hard = setTimeout(() => { if (raw) complete(); else fallback(); }, 7000);
+    tSilent = setTimeout(() => { if (raw) complete(); else { trail.push('live silent'); fallback(); } }, SILENT_MS);
   }
 
   async function complete() {
-    if (done) return;
-    clearTimeout(quiet); clearTimeout(hard);
+    if (done || busy) return;
+    busy = true;
+    clearTimeout(tQuiet); clearTimeout(tSilent);
+    drop();
     const text = raw.trim();
-    try { upstream?.close(1000); } catch {}
     if (!text) { finish({ text: '' }); return; }
-    try { finish({ text: await cleanText(text), raw: text, engine: 'live' }); }
-    catch (e) { finish({ text: applyAliases(text), raw: text, engine: 'live', note: 'Czyszczenie nie zadziałało, wstawiam surowy tekst: ' + String(e.message || e).slice(0, 80) }); }
+    const left = DEADLINE_MS - (Date.now() - endedAt) - 300;
+    try { finish({ text: await cleanText(text, Math.max(800, Math.min(CLEAN_MS, left))), raw: text, engine: 'live' }); }
+    catch (e) {
+      trail.push(`cleaner: ${String(e.message || e).slice(0, 80)}`);
+      finish({ text: applyAliases(text), raw: text, engine: 'live', note: 'Czyszczenie nie zadziałało, wstawiam surowy tekst.' });
+    }
   }
 
   async function fallback() {
-    if (done) return;
-    clearTimeout(quiet); clearTimeout(hard);
-    try { upstream?.close(1000); } catch {}
-    if (!ended) { ended = true; }
-    if (bytes < 9600) { finish({ text: '' }); return; }
-    try { const r = await dictate(pcmToWav(Buffer.concat(chunks))); finish({ text: r.text, engine: 'audio' }); }
-    catch (e) { finish({ error: String(e.message || e) }); }
+    if (done || busy) return;
+    busy = true;
+    clearTimeout(tQuiet); clearTimeout(tSilent);
+    drop();
+    trail.push('fallback');
+    try {
+      const r = await dictate(pcmToWav(Buffer.concat(chunks)), { deadline: endedAt + DEADLINE_MS - 300 });
+      finish({ text: r.text, engine: 'audio' });
+    } catch (e) { finish({ error: String(e.message || e).slice(0, 200) }); }
   }
 
-  function finish(result, silent) {
+  function finish(result, closed) {
     if (done) return;
     done = true;
-    clearTimeout(quiet); clearTimeout(hard);
-    try { upstream?.close(1000); } catch {}
-    if (!silent && result) tell({ type: 'result', ...result });
+    clearTimeout(tQuiet); clearTimeout(tSilent); clearTimeout(tDeadline);
+    drop();
+    if (!closed && result) tell({ type: 'result', ...result });
+    if (!closed || ended || trail.length) {
+      const outcome = result?.error ? 'error' : result?.engine || (closed ? 'closed by app' : 'empty');
+      const after = endedAt ? `${Date.now() - endedAt}ms after release` : 'while recording';
+      console.log(`[dictate] ${(bytes / 32000).toFixed(1)}s audio, ${outcome}, ${after}${trail.length ? ` (${trail.join('; ')})` : ''}${result?.error ? `: ${result.error}` : ''}`);
+    }
     setTimeout(() => conn.close(1000), 50);
   }
 
