@@ -207,7 +207,7 @@ final class DictationSession: @unchecked Sendable {
     private static var socketURL: URL {
         var s = Config.base.replacingOccurrences(of: "https://", with: "wss://").replacingOccurrences(of: "http://", with: "ws://")
         if s.hasSuffix("/") { s.removeLast() }
-        return URL(string: s + "/dictate")!
+        return URL(string: s + (LocalMode.active ? "/dictate?local=1" : "/dictate"))!
     }
 
     func start() async throws {
@@ -278,7 +278,8 @@ final class DictationSession: @unchecked Sendable {
         stopAudio()
         lock.lock(); let t = task; lock.unlock()
         t?.send(.string("{\"type\":\"end\"}")) { _ in }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 25) { [weak self] in self?.complete(.failure("Host nie odpowiedział na czas")) }
+        lock.lock(); let spoken = Double(sentFrames) / 16000; lock.unlock()
+        DispatchQueue.global().asyncAfter(deadline: .now() + max(25, min(95, spoken * 1.3 + 12))) { [weak self] in self?.complete(.failure("Host nie odpowiedział na czas")) }
     }
 
     func cancel() {

@@ -4,6 +4,7 @@ import { claudeText, anthropicReady } from './llm.mjs';
 import { store } from './db.mjs';
 import { acceptUpgrade } from './ws.mjs';
 import { config } from './config.mjs';
+import { whisperText, whisperInstalled, isOffline } from './local.mjs';
 
 const SEED = [
   ['Claude', ['Cloud', 'Klod', 'Klaud', 'Clod', 'Klaudia']],
@@ -215,7 +216,10 @@ const CLEAN_MS = 6000;
 const DEADLINE_MS = 21000;
 const LIVE_TRIES = 3;
 
+const whisperBudget = bytes => Math.min(90000, Math.max(DEADLINE_MS, (bytes / 32000) * 1300 + 8000));
+
 export function handleDictateUpgrade(req, socket) {
+  const local = new URL(req.url, 'http://localhost').searchParams.get('local') === '1';
   const chunks = [];
   const keys = dictKeys();
   const trail = [];
@@ -290,6 +294,23 @@ export function handleDictateUpgrade(req, socket) {
     else liveDown = true;
   }
 
+  function armDeadline(ms) {
+    clearTimeout(tDeadline);
+    tDeadline = setTimeout(() => {
+      trail.push('deadline');
+      const text = raw.trim();
+      finish(text ? { text: applyAliases(text), raw: text, engine: 'live' } : { error: local ? 'Rozpoznawanie mowy offline trwa za długo.' : 'Gemini nie odpowiada, spróbuj jeszcze raz.' });
+    }, ms);
+  }
+
+  async function offlineText() {
+    trail.push('whisper');
+    armDeadline(whisperBudget(bytes));
+    const dict = getDictionary();
+    const text = await whisperText(pcmToWav(Buffer.concat(chunks)), { terms: dict.map(e => e.term), timeoutMs: whisperBudget(bytes) - 500 });
+    finish({ text: tidy(applyAliases(text, dict)), engine: 'whisper' });
+  }
+
   function armQuiet() { clearTimeout(tQuiet); tQuiet = setTimeout(complete, 400); }
 
   function end() {
@@ -297,11 +318,7 @@ export function handleDictateUpgrade(req, socket) {
     ended = true;
     endedAt = Date.now();
     if (bytes < 9600) { finish({ text: '' }); return; }
-    tDeadline = setTimeout(() => {
-      trail.push('deadline');
-      const text = raw.trim();
-      finish(text ? { text: applyAliases(text), raw: text, engine: 'live' } : { error: 'Gemini nie odpowiada, spróbuj jeszcze raz.' });
-    }, DEADLINE_MS);
+    armDeadline(local ? whisperBudget(bytes) : DEADLINE_MS);
     if (liveDown || !upstream) { fallback(); return; }
     if (ready) up({ realtimeInput: { activityEnd: {} } });
     tSilent = setTimeout(() => { if (raw) complete(); else { trail.push('live silent'); fallback(); } }, SILENT_MS);
@@ -327,10 +344,17 @@ export function handleDictateUpgrade(req, socket) {
     busy = true;
     clearTimeout(tQuiet); clearTimeout(tSilent);
     drop();
-    trail.push('fallback');
     try {
-      const r = await dictate(pcmToWav(Buffer.concat(chunks)), { deadline: endedAt + DEADLINE_MS - 300 });
-      finish({ text: r.text, engine: 'audio' });
+      if (local) { await offlineText(); return; }
+      trail.push('fallback');
+      try {
+        const r = await dictate(pcmToWav(Buffer.concat(chunks)), { deadline: endedAt + DEADLINE_MS - 300 });
+        finish({ text: r.text, engine: 'audio' });
+      } catch (e) {
+        if (!isOffline(e) || !whisperInstalled()) throw e;
+        trail.push('offline');
+        await offlineText();
+      }
     } catch (e) { finish({ error: String(e.message || e).slice(0, 200) }); }
   }
 
@@ -348,5 +372,5 @@ export function handleDictateUpgrade(req, socket) {
     setTimeout(() => conn.close(1000), 50);
   }
 
-  connect();
+  if (local) { liveDown = true; trail.push('local'); } else connect();
 }

@@ -365,6 +365,7 @@ struct NotchView: View {
             if !m.agentHistory.isEmpty { agentHistoryBlock }
             ForEach(m.pending.prefix(2)) { item in approvalCard(item) }
             if m.hasReply { replyBlock }
+            if m.localActive && (m.selectionAttach != nil || m.clipboardAttach != nil) { attachRow.transition(.melt(scale: 0.95, blur: 4, anchor: .bottom)) }
             inputBar
         }
         .padding(.horizontal, 30)
@@ -395,11 +396,31 @@ struct NotchView: View {
                 }
             }
             Spacer(minLength: 8)
-            roundButton("waveform", "Rozmowa na żywo") { m.openLive() }
+            localToggle
+            if !m.localActive { roundButton("waveform", "Rozmowa na żywo") { m.openLive() }.transition(.scale(scale: 0.6).combined(with: .opacity)) }
             roundButton("macwindow", "Otwórz Concierge") { m.openApp() }
         }
+        .animation(Island.morph, value: m.localActive)
         .contentShape(Rectangle())
         .onTapGesture { m.openApp() }
+    }
+
+    private var localToggle: some View {
+        let on = m.localActive
+        return Button { withAnimation(Island.morph) { m.toggleLocal() } } label: {
+            HStack(spacing: 5) {
+                Image(systemName: on ? "cpu.fill" : "cpu").font(.system(size: 12, weight: .semibold)).contentTransition(.symbolEffect(.replace))
+                if on { Text("Lokalnie").font(.system(size: 11.5, weight: .semibold)).transition(.melt(scale: 0.8, blur: 3, anchor: .leading)) }
+            }
+            .foregroundStyle(on ? Color.black : Color.white)
+            .padding(.horizontal, on ? 11 : 0).frame(minWidth: 30, minHeight: 30)
+            .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.black.opacity(m.localMode || !on ? 0 : 0.35), style: StrokeStyle(lineWidth: 1, dash: [3, 2])).padding(2))
+        }
+        .buttonStyle(PressStyle())
+        .help(m.localMode ? "Tryb lokalny: model na Macu, bez internetu. Kliknij, żeby wrócić do Gemini." : (m.internet ? "Włącz tryb lokalny: model na Macu, działa bez internetu" : "Bez internetu odpowiada model lokalny"))
+        .accessibilityLabel("Tryb lokalny")
+        .accessibilityValue(on ? "włączony" : "wyłączony")
     }
 
     @ViewBuilder
@@ -484,11 +505,41 @@ struct NotchView: View {
         }
     }
 
+    private var attachRow: some View {
+        HStack(spacing: 6) {
+            if let a = m.selectionAttach {
+                Button { withAnimation(Island.morph) { m.selectionAttach = nil } } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "text.cursor").font(.system(size: 10, weight: .semibold))
+                        Text(a.app.isEmpty ? "Zaznaczenie, \(a.chars) zn." : "Zaznaczenie z \(a.app), \(a.chars) zn.").lineLimit(1)
+                        Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).opacity(0.6)
+                    }
+                    .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.black)
+                    .padding(.horizontal, 10).padding(.vertical, 5).background(Color.white, in: Capsule())
+                }
+                .buttonStyle(PressStyle()).help("Model dostanie zaznaczony tekst. Kliknij, żeby go nie wysyłać.")
+            }
+            if let c = m.clipboardAttach {
+                Button { withAnimation(Island.morph) { m.useClipboard.toggle() } } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: m.useClipboard ? "doc.on.clipboard.fill" : "doc.on.clipboard").font(.system(size: 10, weight: .semibold))
+                        Text("Schowek, \(c.chars) zn.").lineLimit(1)
+                    }
+                    .font(.system(size: 10.5, weight: .medium)).foregroundStyle(m.useClipboard ? Color.black : Color.white.opacity(0.75))
+                    .padding(.horizontal, 10).padding(.vertical, 5).background(m.useClipboard ? Color.white : Color.white.opacity(0.1), in: Capsule())
+                }
+                .buttonStyle(PressStyle()).help(m.useClipboard ? "Model dostanie tekst ze schowka" : "Dołącz tekst ze schowka")
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 4)
+    }
+
     private var inputBar: some View {
         HStack(spacing: 8) {
             HStack(spacing: 8) {
                 if m.agentMode { Image(systemName: "cursorarrow.click.2").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.6)).transition(.scale.combined(with: .opacity)) }
-                TextField(m.agentMode ? "Co mam zrobić na ekranie?" : "Napisz do Concierge", text: $m.text)
+                TextField(m.agentMode ? "Co mam zrobić na ekranie?" : (m.localActive ? "Napisz, odpowiem bez internetu" : "Napisz do Concierge"), text: $m.text)
                     .textFieldStyle(.plain).font(.system(size: 13.5)).foregroundStyle(.white)
                     .focused($focused)
                     .onSubmit { m.send() }
@@ -499,11 +550,14 @@ struct NotchView: View {
             .overlay(Capsule().strokeBorder(Color.white.opacity(focused ? 0.16 : 0.05), lineWidth: 1))
             .animation(.easeOut(duration: 0.15), value: focused)
             .animation(Island.morph, value: m.agentMode)
-            Button { m.agentMode.toggle() } label: {
-                Image(systemName: "cursorarrow.click.2").font(.system(size: 13, weight: .semibold)).foregroundStyle(m.agentMode ? Color.black : Color.white)
-                    .frame(width: 34, height: 34).background(m.agentMode ? Color.white : Color.white.opacity(0.12), in: Circle())
+            if !m.localActive {
+                Button { m.agentMode.toggle() } label: {
+                    Image(systemName: "cursorarrow.click.2").font(.system(size: 13, weight: .semibold)).foregroundStyle(m.agentMode ? Color.black : Color.white)
+                        .frame(width: 34, height: 34).background(m.agentMode ? Color.white : Color.white.opacity(0.12), in: Circle())
+                }
+                .buttonStyle(PressStyle()).help("Agent ekranu: wykona zadanie na Twoim ekranie").accessibilityLabel("Tryb agenta ekranu")
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
-            .buttonStyle(PressStyle()).help("Agent ekranu: wykona zadanie na Twoim ekranie").accessibilityLabel("Tryb agenta ekranu")
             Button { m.send() } label: {
                 Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(.black)
                     .frame(width: 34, height: 34).background(Color.white.opacity(m.text.isEmpty ? 0.3 : 1), in: Circle())

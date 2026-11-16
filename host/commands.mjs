@@ -10,6 +10,7 @@ import { live } from './live-state.mjs';
 import { getBrief, briefBus } from './brief.mjs';
 import { vapidPublicKey } from './push.mjs';
 import { timerState, onTimersChange } from './timers.mjs';
+import { localRun, localState, localBus, localInstalled, isOffline } from './local.mjs';
 
 export const THREAD = 'main';
 
@@ -57,15 +58,17 @@ export function snapshot() {
     brief: getBrief(),
     vapid: vapidPublicKey(),
     timers: timerState(),
+    local: localState(),
   };
 }
 
 const changed = () => bus.emit('state');
 briefBus.on('change', changed);
 onTimersChange(changed);
+localBus.on('change', changed);
 
 function track(rid, send, thread) {
-  return e => { const ev = { ...e, rid, thread }; send(ev); bus.emit('event', ev); };
+  return e => { const ev = { ...e, rid, thread }; send(ev); if (e.type !== 'delta') bus.emit('event', ev); };
 }
 
 async function tracked(thread, fn) {
@@ -73,7 +76,7 @@ async function tracked(thread, fn) {
   try { await fn(); } finally { active.set(thread, active.get(thread) - 1); changed(); }
 }
 
-async function autoTitle(thread) {
+async function autoTitle(thread, local = false) {
   const t = store.getThread(thread);
   if (!t || t.titled) return;
   const msgs = history(thread);
@@ -81,7 +84,7 @@ async function autoTitle(thread) {
   if (!first) return;
   const reply = msgs.find(m => m.role === 'assistant')?.text || '';
   let title = first.replace(/\s+/g, ' ').slice(0, 40);
-  try {
+  if (!local) try {
     const res = await generate({
       system: 'Wymyślasz krótkie tytuły rozmów. Odpowiadasz samym tytułem po polsku: maksymalnie 4 słowa, bez cudzysłowów, bez kropki na końcu, bez emoji.',
       contents: [{ role: 'user', parts: [{ text: `Początek rozmowy.\nUżytkownik: ${first.slice(0, 300)}\nAsystent: ${reply.slice(0, 300)}` }] }],
@@ -94,15 +97,25 @@ async function autoTitle(thread) {
   changed();
 }
 
-export function chat(text, send = () => {}, { cid, thread = THREAD } = {}) {
+export function chat(text, send = () => {}, { cid, thread = THREAD, local = false, context = null } = {}) {
   thread = validThread(thread);
   store.ensureThread(thread);
   const rid = cid || crypto.randomUUID();
   if (!text.startsWith('[System:')) bus.emit('event', { type: 'user', text, rid, cid: rid, thread });
   const emit = track(rid, send, thread);
-  return queue(thread, () => tracked(thread, () => run(thread, text, emit)))
+  let offline = false;
+  const job = local
+    ? () => localRun(thread, text, emit, { context })
+    : () => run(thread, text, emit).catch(err => {
+      if (!isOffline(err)) throw err;
+      if (!localInstalled()) throw new Error('Brak internetu.');
+      offline = true;
+      emit({ type: 'mode', mode: 'local', reason: 'offline' });
+      return localRun(thread, text, emit, { stored: true });
+    });
+  return queue(thread, () => tracked(thread, job))
     .catch(err => emit({ type: 'error', message: String(err.message || err) }))
-    .then(() => autoTitle(thread));
+    .then(() => autoTitle(thread, local || offline));
 }
 
 export function approve(id, yes, send = () => {}) {

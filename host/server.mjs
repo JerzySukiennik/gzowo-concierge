@@ -19,6 +19,7 @@ import { listLogins, saveLogin, removeLogin } from './logins.mjs';
 import { handleAgentUpgrade } from './screen-agent.mjs';
 import { getDictionary, saveDictionary, addWord, removeWord, getDictation, setDictation, handleDictateUpgrade } from './dictation.mjs';
 import { modelInfo, setChatModel, saveAnthropicKey, removeAnthropicKey } from './llm.mjs';
+import { localState, warmLocal } from './local.mjs';
 import { getBrief, setBrief, runBrief, startBrief } from './brief.mjs';
 import { addSubscription, removeSubscription, vapidPublicKey } from './push.mjs';
 import { listCards, addCard, removeCard } from './vault.mjs';
@@ -75,11 +76,16 @@ async function api(req, res, url) {
     if (th[2] === 'restore' && req.method === 'POST') { restoreThread(id); return json(res, 200, { ok: true }); }
     if (!th[2] && req.method === 'DELETE') { deleteThread(id); return json(res, 200, { ok: true }); }
   }
+  if (p === '/api/local') {
+    if (req.method === 'POST') { if (!isLoopback(req)) return json(res, 403, { error: 'local only' }); return json(res, 200, warmLocal(!!(await readBody(req)).on)); }
+    return json(res, 200, localState());
+  }
   if (p === '/api/pair') return isLoopback(req) ? json(res, 200, { url: pairingUrl() }) : json(res, 403, { error: 'local only' });
   if (p === '/api/chat' && req.method === 'POST') {
-    const { text, thread } = await readBody(req);
+    const { text, thread, local, context } = await readBody(req);
     if (!text?.trim()) return json(res, 400, { error: 'text required' });
-    return ndjson(res, send => chat(text.trim(), send, { thread: validThread(thread) }));
+    const ctx = isLoopback(req) && context && typeof context === 'object' ? { selection: String(context.selection || ''), clipboard: String(context.clipboard || ''), app: String(context.app || '') } : null;
+    return ndjson(res, send => chat(text.trim(), send, { thread: validThread(thread), local: !!local, context: ctx }));
   }
   const ap = p.match(/^\/api\/approvals\/([\w-]+)$/);
   if (ap && req.method === 'POST') {

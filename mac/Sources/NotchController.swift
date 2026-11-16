@@ -104,6 +104,10 @@ final class NotchController {
             var n = NowPlaying(); n.title = "The Mentalist, Season 3"; n.app = "Prime Video"; n.playing = arg > 0.5; n.duration = 2549; n.elapsed = 1788; n.stamp = Date(); n.artId = "x"
             model.setMedia(n, art: NSImage(contentsOfFile: "/System/Library/Desktop Pictures/.thumbnails/Big Sur Coastline.heic") ?? NSImage(named: NSImage.applicationIconName), icon: nil)
         case "nomedia": model.setMedia(NowPlaying(), art: nil, icon: nil)
+        case "local": model.toggleLocal()
+        case "offline": model.setInternet(arg < 0.5)
+        case "attach": model.selectionAttach = Attachment(text: "Holes usually come out slightly smaller than designed, so print a small test piece first.", app: "Safari"); model.clipboardAttach = Attachment(text: "PETG 240°C", app: "")
+        case "ask": model.text = parts.dropFirst().joined(separator: ":"); model.send()
         default: break
         }
     }

@@ -156,6 +156,8 @@ import Combine
         levels.onChange = { [weak self] e in Task { @MainActor in self?.notch.model.showLevel(e) } }
         levels.onMediaKey = { [weak self] in Task { @MainActor in try? await Task.sleep(for: .milliseconds(350)); self?.notch.model.peekMedia() } }
         levels.start()
+        Connectivity.shared.onChange = { [weak self] up in Task { @MainActor in self?.notch.model.setInternet(up) } }
+        Connectivity.shared.start()
         media.onChange = { [weak self] track, play in
             guard let self else { return }
             island.setMedia(self.media.info, art: self.media.art, icon: self.media.appIcon)

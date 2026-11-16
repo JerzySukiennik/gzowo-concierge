@@ -42,6 +42,16 @@ The Mac app draws a black island at the top of the screen (`mac/Sources/Notch*.s
 - **Fullscreen:** the island hides, except for levels, a finished timer and agent questions.
 - Menu View: "Głośność i jasność na wyspie", "Teraz grane na wyspie".
 
+## Offline mode
+
+The "Lokalnie" button in the opened island switches the quick chat to a model that runs on the Mac itself, with no internet. Without internet the island switches by itself (dashed outline), and a chat that fails because the network is down is answered locally too.
+- **Model:** Gemma 4 E4B (Q4_K_M, 5 GB) through llama.cpp's `llama-server` on the CPU (`host/local.mjs`), 4 threads for writing and 6 for reading the prompt, at low priority. It loads when the island opens in offline mode (7 to 20 s), writes about 6 tokens per second and unloads after 10 idle minutes. Picked over Bielik 4.5B, Qwen 3.5 4B and Gemma 4 E2B on 15 Polish questions (arithmetic, school, translation, facts).
+- **Replies** stream into the island word by word (`delta` events go only to the asking client, not to the relay). The conversation stays in the same thread history; titles are made locally, nothing is sent to Gemini.
+- **Selected text and clipboard:** the island reads the selection in the app in front (Accessibility) and shows it as a chip that can be removed; the clipboard is added by its chip or when the message mentions it. The text goes to the model as data, up to 4000 characters each.
+- **Dictation:** with offline mode on, or when Gemini cannot be reached, ⌃⌥ is transcribed by whisper.cpp (`large-v3-turbo` q5, `whisper-cli` from Homebrew) on the Mac: about 3 to 5 s after release for a sentence or two.
+- **Setup:** `scripts/local-setup.sh` downloads llama.cpp for Intel macOS, the model and the whisper model into `~/.gzowo-concierge/local` (kept across host installs). Another model from the table in `host/local.mjs` can be set with the `localModel` setting.
+- Live talk and the screen agent need Gemini, so the island hides them in offline mode.
+
 ## Timers
 
 "Ustaw timer na 10 minut" starts a countdown (`host/timers.mjs`, tools `timer_start`, `timer_list`, `timer_cancel`). It shows on the island with a ring and the time left. When it ends the Mac rings and the phone gets a push; a timer set in the room is also announced by the room speaker. The island can add a minute or cancel it.
@@ -49,7 +59,7 @@ The Mac app draws a black island at the top of the screen (`mac/Sources/Notch*.s
 ## Menu bar panel
 
 The Concierge icon in the menu bar shows live CPU, GPU and RAM (right click: turn the numbers off). A click opens the control panel (`mac/Sources/ControlPanel.swift`), which replaces the Vorssaint utility:
-- **Klapa:** closed-lid mode. The Mac keeps working with the lid shut and the screen off, on battery too, until it is switched off (survives restarts). It runs `pmset disablesleep` through a sudoers rule that allows only that command; the existing `/etc/sudoers.d/vorssaint-clamshell` rule is used, and if it is missing the app asks for the admin password once to write its own (`PowerControl.swift`).
+- **Klapa:** stay-awake mode. The Mac never sleeps and the open screen never dims; with the lid shut it keeps working with the screen off, on battery too, until it is switched off (survives restarts). It runs `pmset disablesleep` through a sudoers rule that allows only that command; the existing `/etc/sudoers.d/vorssaint-clamshell` rule is used, and if it is missing the app asks for the admin password once to write its own (`PowerControl.swift`).
 - **Ekran:** turns the display off now. **Klawiatura:** cleaning mode that ignores every key, media key and the Touch Bar until a click or a quiet minute (`KeyboardClean.swift`).
 - **Monitor:** CPU and GPU load with temperatures from the SMC, fans, RAM with memory pressure, free disk space and disk activity, network speed, battery with power draw, cycles and health (`SystemStats.swift`). The hungriest apps are listed with a quit button.
 - **Sound:** master volume plus a slider per app that plays sound. Below 100% the app is captured with a Core Audio process tap and played back quieter; at 100% nothing is tapped (`AppMixer.swift`).

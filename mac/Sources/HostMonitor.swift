@@ -1,4 +1,4 @@
-// Gzowo Concierge for macOS - polls the local host for online, busy, pending approvals and the conversation list.
+// Gzowo Concierge for macOS - polls the local host for online, busy, pending approvals, the conversation list and the local model state.
 import Foundation
 
 struct ThreadInfo: Equatable, Identifiable {
@@ -35,6 +35,7 @@ struct HostState: Equatable {
     var briefText = ""
     var briefThread = "poranny-brief"
     var timers: [TimerInfo] = []
+    var local = LocalInfo()
 }
 
 final class HostMonitor {
@@ -89,6 +90,9 @@ final class HostMonitor {
                 next.timers = (json["timers"] as? [[String: Any]] ?? []).compactMap { t in
                     guard let id = t["id"] as? String, let ends = t["ends"] as? Double else { return nil }
                     return TimerInfo(id: id, label: t["label"] as? String ?? "", ends: Date(timeIntervalSince1970: ends / 1000), total: t["total"] as? Double ?? 0, done: (t["done"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) })
+                }
+                if let l = json["local"] as? [String: Any] {
+                    next.local = LocalInfo(installed: l["installed"] as? Bool ?? false, loading: l["loading"] as? Bool ?? false, ready: l["ready"] as? Bool ?? false, model: l["model"] as? String ?? "", dictation: l["dictation"] as? Bool ?? false, problem: l["problem"] as? String ?? "")
                 }
                 next.hasThreads = json["threads"] != nil
                 next.threads = (json["threads"] as? [[String: Any]] ?? []).compactMap { t in

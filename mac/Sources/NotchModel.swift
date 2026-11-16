@@ -1,4 +1,4 @@
-// Gzowo Concierge for macOS - state of the island: live activities (levels, media, timers, next event, agent, dictation) with priorities and sizes, quick chat with streamed reply, approvals.
+// Gzowo Concierge for macOS - state of the island: live activities (levels, media, timers, next event, agent, dictation) with priorities and sizes, quick chat with streamed reply, approvals, offline mode with a local model.
 import AppKit
 import SwiftUI
 
@@ -23,7 +23,7 @@ enum Activity: Hashable {
 
 @MainActor
 final class NotchModel: ObservableObject {
-    @Published var expanded = false
+    @Published var expanded = false { didSet { if expanded && !oldValue { prepareLocal() } } }
     @Published var hovering = false
     @Published var closedSize = CGSize(width: 190, height: 24)
     @Published var openSize = CGSize(width: 600, height: 196)
@@ -54,6 +54,13 @@ final class NotchModel: ObservableObject {
     @Published var timers: [TimerInfo] = []
     @Published var alarm: TimerInfo?
     @Published var clock = Date()
+    @Published var localMode = LocalMode.enabled
+    @Published var internet = true
+    @Published var local = LocalInfo()
+    @Published var selectionAttach: Attachment?
+    @Published var clipboardAttach: Attachment?
+    @Published var useClipboard = false
+    @Published var fellBack = false
 
     var startAgent: (String) -> Void = { _ in }
     var stopAgent: () -> Void = {}
@@ -121,6 +128,8 @@ final class NotchModel: ObservableObject {
     }
 
     var attention: Bool { !pending.isEmpty || busy || streaming || !online }
+
+    var localActive: Bool { localMode || !internet }
 
     var activities: [Activity] {
         var a: [Activity] = []
@@ -303,6 +312,13 @@ final class NotchModel: ObservableObject {
     var status: String {
         if !online { return "Host nie odpowiada" }
         if !pending.isEmpty { return "Czeka na Twoją zgodę" }
+        if localActive || fellBack {
+            if !local.installed { return "Model lokalny nie jest zainstalowany" }
+            if local.loading { return "Wczytuję model lokalny…" }
+            if streaming || busy { return "Piszę lokalnie…" }
+            if !local.problem.isEmpty { return local.problem }
+            return internet ? "Lokalnie, \(local.model)" : "Bez internetu, \(local.model)"
+        }
         if streaming || busy { return "Pracuję…" }
         return "Gotowy"
     }
@@ -312,8 +328,36 @@ final class NotchModel: ObservableObject {
         if pending != s.pendingItems { pending = s.pendingItems }
         if avatarShape != s.avatarShape { avatarShape = s.avatarShape }
         if avatarColor != s.avatarColor { avatarColor = s.avatarColor }
+        if local != s.local { local = s.local }
         if s.online { setTimers(s.timers) }
     }
+
+    func toggleLocal() {
+        localMode.toggle()
+        UserDefaults.standard.set(localMode, forKey: LocalMode.key)
+        agentMode = false
+        if localMode { prepareLocal() } else { dropAttachments(); if internet { warm(false) } }
+    }
+
+    func setInternet(_ up: Bool) {
+        guard internet != up else { return }
+        internet = up
+        if up { fellBack = false; if !localMode { dropAttachments(); warm(false) } }
+        else { agentMode = false; if expanded { prepareLocal() } }
+    }
+
+    func prepareLocal() {
+        guard localActive else { return }
+        selectionAttach = ContextGrabber.selection()
+        let clip = ContextGrabber.clipboard()
+        clipboardAttach = clip?.text == selectionAttach?.text ? nil : clip
+        useClipboard = false
+        if local.installed && !local.ready && !local.loading { warm(true) }
+    }
+
+    func dropAttachments() { selectionAttach = nil; clipboardAttach = nil; useClipboard = false }
+
+    private func warm(_ on: Bool) { Task { _ = await Api.post("/api/local", ["on": on]); requestPoll() } }
 
     func clearReply() { reply = ""; steps = []; errorText = "" }
 
@@ -332,27 +376,44 @@ final class NotchModel: ObservableObject {
         streaming = true
         let thread = activeThread()
         replyThread = thread
+        var body: [String: Any] = ["text": msg, "thread": thread]
+        if !localActive { fellBack = false }
+        if localActive {
+            if selectionAttach == nil, let fresh = ContextGrabber.selection() { selectionAttach = fresh }
+            let clip = useClipboard || ContextGrabber.mentionsClipboard(msg) ? (clipboardAttach ?? ContextGrabber.clipboard()) : nil
+            body["local"] = true
+            body["context"] = ["selection": selectionAttach?.text ?? "", "clipboard": clip?.text ?? "", "app": selectionAttach?.app ?? ""]
+            dropAttachments()
+        }
         streamTask = Task { [weak self] in
-            await self?.stream(msg, thread: thread)
+            await self?.stream(body, thread: thread)
         }
     }
 
-    private func stream(_ msg: String, thread: String) async {
+    private func stream(_ body: [String: Any], thread: String) async {
         defer { Task { @MainActor in self.streaming = false; self.requestPoll(); self.onFinished(thread) } }
         guard let url = URL(string: Config.base + "/api/chat") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": msg, "thread": thread])
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         req.timeoutInterval = 120
+        var live = ""
         do {
             let (bytes, _) = try await URLSession.shared.bytes(for: req)
             for try await line in bytes.lines {
                 guard let data = line.data(using: .utf8), let e = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                 switch e["type"] as? String {
+                case "delta":
+                    if live.isEmpty { steps.removeAll { $0 == "Wczytuję model lokalny" } }
+                    live += e["text"] as? String ?? ""
+                    reply = live
+                case "mode":
+                    fellBack = true
                 case "text":
                     let t = e["text"] as? String ?? ""
-                    reply = reply.isEmpty ? t : reply + "\n" + t
+                    if !live.isEmpty { reply = t; live = "" }
+                    else { reply = reply.isEmpty ? t : reply + "\n" + t }
                 case "tool":
                     let s = e["summary"] as? String ?? ""
                     if e["status"] as? String == "running" { if !steps.contains(s) { steps.append(s) } }

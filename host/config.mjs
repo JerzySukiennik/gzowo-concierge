@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,6 +44,13 @@ export const config = {
   dataDir: env.DATA_DIR || path.join(ROOT, 'data'),
   calApp: path.join(ROOT, 'bin', 'ConciergeCal.app'),
   webDir: path.join(ROOT, 'web'),
+  local: {
+    dir: env.LOCAL_DIR || path.join(os.homedir(), '.gzowo-concierge', 'local'),
+    port: Number(env.LOCAL_PORT || 2048),
+    threads: Number(env.LOCAL_THREADS || 4),
+    attachChars: 4000,
+    historyChars: 6000,
+  },
   relay: {
     dbUrl: (env.FIREBASE_DB_URL || 'https://gzowo-concierge-default-rtdb.europe-west1.firebasedatabase.app').replace(/\/$/, ''),
     sid: env.RELAY_SID,
