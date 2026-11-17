@@ -211,7 +211,7 @@ export function isOffline(err) {
   return OFFLINE_CODES.has(code) || (err?.name === 'TypeError' && /fetch failed/i.test(String(err.message)));
 }
 
-export function whisperText(wav, { terms = [], timeoutMs = 30000 } = {}) {
+export function whisperText(wav, { terms = [], timeoutMs = 30000, signal } = {}) {
   if (!whisperInstalled()) return Promise.reject(new Error('Dyktowanie offline nie jest zainstalowane.'));
   const file = path.join(os.tmpdir(), `concierge-dict-${crypto.randomBytes(6).toString('hex')}.wav`);
   fs.writeFileSync(file, wav, { mode: 0o600 });
@@ -220,7 +220,7 @@ export function whisperText(wav, { terms = [], timeoutMs = 30000 } = {}) {
   const prompt = terms.length ? `Dyktuję tekst po polsku. Nazwy, które się pojawiają: ${terms.slice(0, 30).join(', ')}.` : '';
   const args = ['-m', WHISPER_MODEL, '-l', 'pl', '-t', '8', '-ac', String(ctx), '-bs', '1', '-bo', '1', '-nf', '-nt', '-np', ...(prompt ? ['--prompt', prompt] : []), '-f', file];
   return new Promise((resolve, reject) => {
-    execFile('/usr/bin/nice', ['-n', '5', WHISPER_BIN, ...args], { timeout: Math.round(timeoutMs), maxBuffer: 1 << 20 }, (err, stdout) => {
+    execFile('/usr/bin/nice', ['-n', '5', WHISPER_BIN, ...args], { timeout: Math.round(timeoutMs), maxBuffer: 1 << 20, signal }, (err, stdout) => {
       fs.rm(file, { force: true }, () => {});
       if (err) return reject(err.killed ? Object.assign(new Error('Rozpoznawanie mowy offline trwa za długo.'), { name: 'TimeoutError' }) : new Error('Rozpoznawanie mowy offline nie zadziałało.'));
       resolve(String(stdout).replace(/\s+/g, ' ').replace(/^\s*\[[^\]]*\]\s*/, '').trim());

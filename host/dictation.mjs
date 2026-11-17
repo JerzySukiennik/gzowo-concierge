@@ -3,6 +3,8 @@ import { generate, textOf } from './gemini.mjs';
 import { claudeText, anthropicReady } from './llm.mjs';
 import { store } from './db.mjs';
 import { acceptUpgrade } from './ws.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from './config.mjs';
 import { whisperText, whisperInstalled, isOffline } from './local.mjs';
 
@@ -152,7 +154,7 @@ async function audioToText(wav, system, deadline) {
   for (const [model, key] of tries) {
     const left = deadline - Date.now();
     if (left < 1500) break;
-    try { return await geminiAudio({ wav, system, model, key, signal: AbortSignal.timeout(Math.min(left, 10000)) }); }
+    try { return await geminiAudio({ wav, system, model, key, signal: AbortSignal.timeout(Math.min(left, 10000 + ((wav.length - 44) / 32000) * 250)) }); }
     catch (e) {
       lastErr = e;
       if (!slow(e) && e.status && ![429, 500, 503].includes(e.status)) throw e;
@@ -211,19 +213,22 @@ const LIVE_MODEL = process.env.LIVE_MODEL || 'models/gemini-3.8-live';
 const LIVE_URL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.${process.env.LIVE_API || 'v1beta'}.GenerativeService.BidiGenerateContent`;
 
 const SETUP_MS = 4000;
-const SILENT_MS = 4000;
-const CLEAN_MS = 6000;
-const DEADLINE_MS = 21000;
 const LIVE_TRIES = 3;
 
-const whisperBudget = bytes => Math.min(90000, Math.max(DEADLINE_MS, (bytes / 32000) * 1300 + 8000));
+const seconds = bytes => bytes / 32000;
+const silentMs = bytes => Math.max(4000, seconds(bytes) * 90);
+const cloudMs = bytes => Math.min(80000, Math.max(21000, 15000 + seconds(bytes) * 300));
+const cleanMs = bytes => Math.min(15000, 6000 + seconds(bytes) * 60);
+const whisperBudget = bytes => Math.min(120000, Math.max(21000, seconds(bytes) * 900 + 10000));
+const FAILED_WAV = () => path.join(config.dataDir, 'dictation-failed.wav');
 
 export function handleDictateUpgrade(req, socket) {
   const local = new URL(req.url, 'http://localhost').searchParams.get('local') === '1';
   const chunks = [];
   const keys = dictKeys();
   const trail = [];
-  let upstream = null, ready = false, ended = false, done = false, busy = false, liveDown = false;
+  const stopWhisper = new AbortController();
+  let upstream = null, ready = false, ended = false, done = false, busy = false, liveDown = false, fbStarted = false, whisperStarted = false;
   let raw = '', bytes = 0, attempt = 0, endedAt = 0;
   let tSetup = null, tQuiet = null, tSilent = null, tDeadline = null;
 
@@ -239,6 +244,7 @@ export function handleDictateUpgrade(req, socket) {
   });
   if (!conn) return;
   const tell = o => conn.open && conn.sendText(JSON.stringify(o));
+  const wav = () => pcmToWav(Buffer.concat(chunks));
 
   const up = o => { if (upstream?.readyState === 1) upstream.send(JSON.stringify(o)); };
   const audioMsg = b => ({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: b.toString('base64') } } });
@@ -296,19 +302,28 @@ export function handleDictateUpgrade(req, socket) {
 
   function armDeadline(ms) {
     clearTimeout(tDeadline);
-    tDeadline = setTimeout(() => {
-      trail.push('deadline');
-      const text = raw.trim();
-      finish(text ? { text: applyAliases(text), raw: text, engine: 'live' } : { error: local ? 'Rozpoznawanie mowy offline trwa za długo.' : 'Gemini nie odpowiada, spróbuj jeszcze raz.' });
-    }, ms);
+    tDeadline = setTimeout(onDeadline, ms);
   }
 
-  async function offlineText() {
+  function onDeadline() {
+    if (done) return;
+    trail.push('deadline');
+    const text = raw.trim();
+    if (text) { finish({ text: applyAliases(text), raw: text, engine: 'live' }); return; }
+    if (!whisperStarted && whisperInstalled()) { lastResort(); return; }
+    fail(local ? 'Rozpoznawanie mowy offline trwa za długo.' : 'Gemini nie odpowiada, spróbuj jeszcze raz.');
+  }
+
+  async function lastResort() {
+    if (done || whisperStarted) return;
+    whisperStarted = true;
     trail.push('whisper');
     armDeadline(whisperBudget(bytes));
-    const dict = getDictionary();
-    const text = await whisperText(pcmToWav(Buffer.concat(chunks)), { terms: dict.map(e => e.term), timeoutMs: whisperBudget(bytes) - 500 });
-    finish({ text: tidy(applyAliases(text, dict)), engine: 'whisper' });
+    try {
+      const dict = getDictionary();
+      const text = await whisperText(wav(), { terms: dict.map(e => e.term), timeoutMs: whisperBudget(bytes) - 500, signal: stopWhisper.signal });
+      finish({ text: tidy(applyAliases(text, dict)), engine: 'whisper' });
+    } catch (e) { if (!done) fail(String(e.message || e).slice(0, 200)); }
   }
 
   function armQuiet() { clearTimeout(tQuiet); tQuiet = setTimeout(complete, 400); }
@@ -318,10 +333,10 @@ export function handleDictateUpgrade(req, socket) {
     ended = true;
     endedAt = Date.now();
     if (bytes < 9600) { finish({ text: '' }); return; }
-    armDeadline(local ? whisperBudget(bytes) : DEADLINE_MS);
+    armDeadline(local ? whisperBudget(bytes) : cloudMs(bytes));
     if (liveDown || !upstream) { fallback(); return; }
     if (ready) up({ realtimeInput: { activityEnd: {} } });
-    tSilent = setTimeout(() => { if (raw) complete(); else { trail.push('live silent'); fallback(); } }, SILENT_MS);
+    tSilent = setTimeout(() => { if (raw) complete(); else { trail.push('live silent'); fallback(); } }, silentMs(bytes));
   }
 
   async function complete() {
@@ -330,9 +345,9 @@ export function handleDictateUpgrade(req, socket) {
     clearTimeout(tQuiet); clearTimeout(tSilent);
     drop();
     const text = raw.trim();
-    if (!text) { finish({ text: '' }); return; }
-    const left = DEADLINE_MS - (Date.now() - endedAt) - 300;
-    try { finish({ text: await cleanText(text, Math.max(800, Math.min(CLEAN_MS, left))), raw: text, engine: 'live' }); }
+    if (!text) { busy = false; if (!fbStarted) fallback(); return; }
+    const left = cloudMs(bytes) - (Date.now() - endedAt) - 300;
+    try { finish({ text: await cleanText(text, Math.max(800, Math.min(cleanMs(bytes), left))), raw: text, engine: 'live' }); }
     catch (e) {
       trail.push(`cleaner: ${String(e.message || e).slice(0, 80)}`);
       finish({ text: applyAliases(text), raw: text, engine: 'live', note: 'Czyszczenie nie zadziałało, wstawiam surowy tekst.' });
@@ -340,34 +355,39 @@ export function handleDictateUpgrade(req, socket) {
   }
 
   async function fallback() {
-    if (done || busy) return;
-    busy = true;
-    clearTimeout(tQuiet); clearTimeout(tSilent);
-    drop();
+    if (done || fbStarted) return;
+    fbStarted = true;
+    clearTimeout(tSilent);
+    if (local) { lastResort(); return; }
+    trail.push('fallback');
     try {
-      if (local) { await offlineText(); return; }
-      trail.push('fallback');
-      try {
-        const r = await dictate(pcmToWav(Buffer.concat(chunks)), { deadline: endedAt + DEADLINE_MS - 300 });
-        finish({ text: r.text, engine: 'audio' });
-      } catch (e) {
-        if (!isOffline(e) || !whisperInstalled()) throw e;
-        trail.push('offline');
-        await offlineText();
-      }
-    } catch (e) { finish({ error: String(e.message || e).slice(0, 200) }); }
+      const r = await dictate(wav(), { deadline: endedAt + cloudMs(bytes) - 300 });
+      if (!done && (r.text || !raw)) finish({ text: r.text, engine: 'audio' });
+    } catch (e) {
+      if (done) return;
+      trail.push(isOffline(e) ? 'offline' : `fallback failed: ${String(e.message || e).slice(0, 60)}`);
+      if (whisperInstalled()) { lastResort(); return; }
+      fail(isOffline(e) ? 'Brak internetu.' : String(e.message || e).slice(0, 200));
+    }
+  }
+
+  function fail(message) {
+    let saved = false;
+    try { fs.writeFileSync(FAILED_WAV(), wav(), { mode: 0o600 }); saved = true; trail.push('audio saved'); } catch {}
+    finish({ error: saved ? `${message} Nagranie jest zachowane.` : message });
   }
 
   function finish(result, closed) {
     if (done) return;
     done = true;
     clearTimeout(tQuiet); clearTimeout(tSilent); clearTimeout(tDeadline);
+    stopWhisper.abort();
     drop();
     if (!closed && result) tell({ type: 'result', ...result });
     if (!closed || ended || trail.length) {
       const outcome = result?.error ? 'error' : result?.engine || (closed ? 'closed by app' : 'empty');
       const after = endedAt ? `${Date.now() - endedAt}ms after release` : 'while recording';
-      console.log(`[dictate] ${(bytes / 32000).toFixed(1)}s audio, ${outcome}, ${after}${trail.length ? ` (${trail.join('; ')})` : ''}${result?.error ? `: ${result.error}` : ''}`);
+      console.log(`[dictate] ${seconds(bytes).toFixed(1)}s audio, ${outcome}, ${after}${trail.length ? ` (${trail.join('; ')})` : ''}${result?.error ? `: ${result.error}` : ''}`);
     }
     setTimeout(() => conn.close(1000), 50);
   }

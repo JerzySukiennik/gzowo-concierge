@@ -279,7 +279,7 @@ final class DictationSession: @unchecked Sendable {
         lock.lock(); let t = task; lock.unlock()
         t?.send(.string("{\"type\":\"end\"}")) { _ in }
         lock.lock(); let spoken = Double(sentFrames) / 16000; lock.unlock()
-        DispatchQueue.global().asyncAfter(deadline: .now() + max(25, min(95, spoken * 1.3 + 12))) { [weak self] in self?.complete(.failure("Host nie odpowiedział na czas")) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + min(240, spoken * 1.2 + 45)) { [weak self] in self?.complete(.failure("Host nie odpowiedział na czas")) }
     }
 
     func cancel() {
