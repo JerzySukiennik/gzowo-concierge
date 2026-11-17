@@ -3,7 +3,7 @@ import { config } from './config.mjs';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-export async function generate({ model = config.chatModel, system, contents, tools, toolConfig, thinking = 'low', temperature, signal, key }) {
+export async function generate({ model = config.chatModel, system, contents, tools, toolConfig, thinking = 'low', temperature, signal, key, retries = 2 }) {
   const body = { contents };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (tools?.length) body.tools = tools;
@@ -13,7 +13,7 @@ export async function generate({ model = config.chatModel, system, contents, too
   if (temperature !== undefined) body.generationConfig.temperature = temperature;
 
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
     const res = await fetch(`${BASE}/${model}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key || config.apiKey },
